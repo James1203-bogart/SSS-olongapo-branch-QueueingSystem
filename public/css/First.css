@@ -1,0 +1,203 @@
+/*
+|--------------------------------------------------------------------------
+| First page styles (copied from resources)
+|--------------------------------------------------------------------------
+| This file is a public copy of `resources/css/First.css` so it can be
+| referenced directly with `asset('css/First.css')` in Blade views.
+*/
+
+:root {
+    /* Base Settings */
+    --font-size: 16px;
+    --radius: 0.625rem;
+    --font-weight-medium: 500;
+    --font-weight-normal: 400;
+
+    /* Color Palette - Light Mode */
+    --background: #ffffff;
+    --foreground: oklch(0.145 0 0); /* Near Black */
+    --card: #ffffff;
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0); /* White */
+    --popover-foreground: oklch(0.145 0 0);
+
+    /* Primary & Secondary */
+    --primary: #030213; /* Very Dark Blue/Black */
+    --primary-foreground: oklch(1 0 0); /* White */
+    --secondary: oklch(0.95 0.0058 264.53);
+    --secondary-foreground: #030213;
+
+    /* Utility & State */
+    --muted: #ececf0;
+    --muted-foreground: #717182;
+    --accent: #e9ebef;
+    --accent-foreground: #030213;
+    --destructive: #d4183d;
+    --destructive-foreground: #ffffff;
+    --border: rgba(0, 0, 0, 0.1);
+    --input: transparent;
+    --input-background: #f3f3f5;
+    --switch-background: #cbced4;
+    --ring: oklch(0.708 0 0);
+
+    /* Sidebar */
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: #030213;
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+
+    /* Chart Colors */
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+
+    /* --- MISSING FONT SIZE FALLBACKS (Crucial for the @layer base typography) --- */
+    --text-2xl: 1.5rem; /* ~24px */
+    --text-xl: 1.25rem;  /* ~20px */
+    --text-lg: 1.125rem; /* ~18px */
+    --text-base: 1rem;   /* ~16px */
+}
+
+/* Dark Mode Overrides */
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.145 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.145 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.396 0.141 25.723);
+    --destructive-foreground: oklch(0.637 0.237 25.331);
+    --border: oklch(0.269 0 0);
+    --input: oklch(0.269 0 0);
+    --ring: oklch(0.439 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.269 0 0);
+    --sidebar-ring: oklch(0.439 0 0);
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Theming Utility Layer
+|--------------------------------------------------------------------------
+*/
+
+:root {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  /* ... all other mappings ... */
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Radius Mappings */
+  --radius-sm: calc(var(--radius) - 4px);
+  /* ... other radius variables ... */
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Base Layer (Required by Tailwind/PostCSS)
+|--------------------------------------------------------------------------
+*/
+
+* { box-sizing: border-box; }
+
+body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Base Typography Layer */
+h1 { font-size: var(--text-2xl); font-weight: var(--font-weight-medium); }
+h2 { font-size: var(--text-xl); font-weight: var(--font-weight-medium); }
+h3 { font-size: var(--text-lg); font-weight: var(--font-weight-medium); }
+
+html { font-size: var(--font-size); }
+
+/* --- Home page styles to match provided design --- */
+.home-hero {
+    background: linear-gradient(180deg, #eef4ff 0%, #f7f9ff 60%);
+}
+
+.hero-header .main-title {
+    color: #123678;
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.hero-header .subtitle {
+    color: #6b7280; /* muted */
+    margin-bottom: 2rem;
+}
+
+.role-card {
+    border-radius: 14px;
+    transition: transform .18s ease, box-shadow .18s ease;
+    overflow: hidden;
+    display: block;
+    color: inherit;
+}
+
+.role-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 40px rgba(17,24,39,0.08);
+}
+
+.role-card .card-body { text-align: center; }
+
+.icon-circle {
+    width: 88px;
+    height: 88px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+
+.bg-primary-custom { background: #2e6ef2; }
+.bg-success-custom { background: #05c46b; }
+.bg-purple-custom { background: #8a4cff; }
+
+.card-title { margin-top: 12px; color: #0b3a66; font-weight:600; }
+.card-text { color: #6b7280; margin-top:8px; }
+
+/* make sure cards are visually similar to the screenshot */
+.role-card .card-body { padding: 2.25rem; }
+
+@media (max-width: 767px) {
+    .icon-circle { width: 64px; height: 64px; }
+    .hero-header .main-title { font-size: 1.25rem; }
+}
+
+/* Logo sizing moved from inline attribute in First.blade.php */
+.sss-logo { height: 80px; width: auto; }

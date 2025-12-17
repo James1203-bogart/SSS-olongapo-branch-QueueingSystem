@@ -1,0 +1,5 @@
+/* Styles extracted from resources/views/ticket.blade.php */
+.ticket { max-width: 360px; margin: 30px auto; padding:20px; border:1px dashed #333; text-align:center; }
+.ticket-number { font-size: 36px; font-weight:700; }
+.ticket-meta { font-size:14px; color:#555; }
+

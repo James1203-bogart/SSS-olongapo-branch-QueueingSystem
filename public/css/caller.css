@@ -1,0 +1,13 @@
+/* Caller page CSS - intentionally kept minimal; add custom rules here */
+
+/* Visual pulse used when ringing the current serving number */
+.ringing {
+	animation: ringPulse 0.6s ease-in-out 3;
+}
+
+@keyframes ringPulse {
+	0% { transform: scale(1); box-shadow: none; }
+	50% { transform: scale(1.04); box-shadow: 0 8px 24px rgba(249, 115, 22, 0.25); }
+	100% { transform: scale(1); box-shadow: none; }
+}
+
