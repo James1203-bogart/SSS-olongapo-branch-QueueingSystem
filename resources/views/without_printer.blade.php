@@ -151,6 +151,20 @@
 
         <script>
                 let CATEGORIES = @json($categories ?? []);
+                    const DEFAULT_CATEGORIES = [
+                        { id: 'acop', name: 'ACOP', priority: 'regular', rangeStart: 100, rangeEnd: 199, color: 'blue' },
+                        { id: 'membership-priority', name: 'Membership Priority', priority: 'priority', rangeStart: 201, rangeEnd: 299, color: 'red' },
+                        { id: 'medical', name: 'Medical', priority: 'regular', rangeStart: 301, rangeEnd: 399, color: 'blue' },
+                        { id: 'membership-regular', name: 'Membership Regular', priority: 'regular', rangeStart: 401, rangeEnd: 499, color: 'blue' },
+                        { id: 'corporate', name: 'Corporate', priority: 'regular', rangeStart: 501, rangeEnd: 599, color: 'blue' },
+                        { id: 'corporate-priority', name: 'Corporate Priority', priority: 'priority', rangeStart: 601, rangeEnd: 699, color: 'red' },
+                        { id: 'pension-regular', name: 'Pension Care (RDF) Regular', priority: 'regular', rangeStart: 701, rangeEnd: 799, color: 'blue' },
+                        { id: 'pension-priority', name: 'Pension Care (RDF) Priority', priority: 'priority', rangeStart: 801, rangeEnd: 899, color: 'red' },
+                        { id: 'ecenter-regular', name: 'E-Center Regular', priority: 'regular', rangeStart: 901, rangeEnd: 999, color: 'blue' },
+                        { id: 'ecenter-priority', name: 'E-Center Priority', priority: 'priority', rangeStart: 1001, rangeEnd: 1099, color: 'red' },
+                        { id: 'mysss', name: 'My.SSS Appointment', priority: 'regular', rangeStart: 1101, rangeEnd: 1199, color: 'blue' },
+                        { id: 'welcome-back', name: 'Welcome Back Ka-SSS', priority: 'regular', rangeStart: 1201, rangeEnd: 1299, color: 'blue' },
+                    ];
                     let categoryCounters = @json($categoryCounters ?? []);
 
                     let tickets = @json((isset($branch) && $branch) ? Session::get('tickets:'.$branch, []) : Session::get('tickets', []));
@@ -172,12 +186,17 @@
                             const data = await res.json();
                             CATEGORIES = data.categories || [];
                         }
+                        if (!Array.isArray(CATEGORIES) || CATEGORIES.length === 0) {
+                            CATEGORIES = DEFAULT_CATEGORIES.slice();
+                        }
                     }
                 } catch (e) {}
             }
 
             async function populateCategorySelects() {
                 await ensureCategories();
+                selectedPriority.innerHTML = '<option value="">Select Transaction Type</option>';
+                selectedRegular.innerHTML = '<option value="">Select Transaction Type</option>';
                 CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedPriority.appendChild(opt);
@@ -186,6 +205,17 @@
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedRegular.appendChild(opt);
                 });
+                if (selectedPriority.options.length <= 1 && selectedRegular.options.length <= 1) {
+                    CATEGORIES = DEFAULT_CATEGORIES.slice();
+                    CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
+                        const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
+                        selectedPriority.appendChild(opt);
+                    });
+                    CATEGORIES.filter(c => c.priority === 'regular').forEach(c => {
+                        const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
+                        selectedRegular.appendChild(opt);
+                    });
+                }
             }
 
                     function getNextForCategory(catId) {

@@ -313,13 +313,20 @@
     </div>
 
     <script>
-      // Resolve active branch from /branch/{slug}/caller or ?branch=...
-      const BRANCH = (() => {
-        const qs = new URLSearchParams(location.search).get('branch');
-        if (qs) return qs;
-        const m = location.pathname.match(/\/branch\/([^\/]+)\//);
-        return m ? m[1] : null;
-      })();
+      // Resolve active branch from /branch/{slug}/caller or ?branch=... with localStorage fallback
+      function resolveBranchSlug() {
+        try {
+          const qp = new URLSearchParams(window.location.search);
+          if (qp.has('branch')) return qp.get('branch');
+          const m = (window.location.pathname || '').match(/\/branch\/([^\/]+)/);
+          if (m && m[1]) return decodeURIComponent(m[1]);
+          const saved = localStorage.getItem('lastBranchSlug');
+          return saved || null;
+        } catch (e) { return null; }
+      }
+      const BRANCH = resolveBranchSlug();
+      // Persist branch so issuer pages opened without /branch use the same channel
+      if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
       // Branch-scoped storage/channel helpers
       const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
       const CHANNEL_NAME = lsKey('queue-events');

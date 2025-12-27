@@ -163,25 +163,30 @@
 
 					// Now Serving (optional from queue) — disabled to avoid flicker; ring/local storage drives NOW SERVING
 					if (USE_QUEUE_FOR_NOW_SERVING) {
-						const serving = tickets.find(t => t.status === 'serving');
-						let current = null;
-						if (serving) {
-							current = { number: serving.number || '- - -', counter: serving.counter || '-', category: serving.category || '' };
-							try { window.lastNowServing = { ...current, ts: Date.now() }; localStorage.setItem(lsKey('last_now_serving'), JSON.stringify(window.lastNowServing)); } catch(e) {}
+						// If an Offline message was just shown, temporarily skip overriding from queue
+						if (window.__offlineHoldUntil && Date.now() < window.__offlineHoldUntil) {
+							// do nothing; Offline will remain on screen until hold expires
 						} else {
-							try { current = window.lastNowServing || JSON.parse(localStorage.getItem(lsKey('last_now_serving')) || 'null'); } catch(e) { current = null; }
-						}
+							const serving = tickets.find(t => t.status === 'serving');
+							let current = null;
+							if (serving) {
+								current = { number: serving.number || '- - -', counter: serving.counter || '-', category: serving.category || '' };
+								try { window.lastNowServing = { ...current, ts: Date.now() }; localStorage.setItem(lsKey('last_now_serving'), JSON.stringify(window.lastNowServing)); } catch(e) {}
+							} else {
+								try { current = window.lastNowServing || JSON.parse(localStorage.getItem(lsKey('last_now_serving')) || 'null'); } catch(e) { current = null; }
+							}
 
-						const num = current && current.number ? current.number : '- - -';
-						const ctr = current && current.counter ? current.counter : '-';
-						const cat = current && current.category ? current.category : '';
-						document.getElementById('displayNowNumber').textContent = num;
-						document.getElementById('displayNowCounter').innerHTML = `<p class="text-yellow-500 text-4xl">to ${ctr}</p>`;
-						if (cat) {
-							document.getElementById('displayNowCategory').textContent = cat;
-							document.getElementById('displayNowCategoryWrap').classList.remove('hidden');
-						} else {
-							document.getElementById('displayNowCategoryWrap').classList.add('hidden');
+							const num = current && current.number ? current.number : '- - -';
+							const ctr = current && current.counter ? current.counter : '-';
+							const cat = current && current.category ? current.category : '';
+							document.getElementById('displayNowNumber').textContent = num;
+							document.getElementById('displayNowCounter').innerHTML = `<p class=\"text-yellow-500 text-4xl\">to ${ctr}</p>`;
+							if (cat) {
+								document.getElementById('displayNowCategory').textContent = cat;
+								document.getElementById('displayNowCategoryWrap').classList.remove('hidden');
+							} else {
+								document.getElementById('displayNowCategoryWrap').classList.add('hidden');
+							}
 						}
 					}
 
@@ -196,10 +201,11 @@
 							// Normalize keys from server
 							const statuses = {};
 							Object.keys(statusesRaw).forEach(k => { statuses[norm(k)] = statusesRaw[k]; });
-							// Merge in latest ring payload on the client to ensure the called counter shows immediately
+							// Merge in latest ring payload on the client to ensure the called counter shows immediately (skip Offline)
 							try {
 								const r = window.latestRing;
-								if (r && r.counter) {
+								const isOffline = r && ((String(r.category || '').toLowerCase() === 'offline') || /offline/i.test(String(r.number || '')));
+								if (r && r.counter && !isOffline) {
 									statuses[norm(r.counter)] = { number: r.number, category: r.category };
 								}
 							} catch(e) {}
@@ -224,7 +230,8 @@
 							COUNTERS.forEach(n => { fallbackStatuses[norm(n)] = null; });
 							try {
 								const r = window.latestRing;
-								if (r && r.counter) { fallbackStatuses[norm(r.counter)] = { number: r.number, category: r.category }; }
+								const isOffline = r && ((String(r.category || '').toLowerCase() === 'offline') || /offline/i.test(String(r.number || '')));
+								if (r && r.counter && !isOffline) { fallbackStatuses[norm(r.counter)] = { number: r.number, category: r.category }; }
 							} catch(e) {}
 							document.getElementById('displayAllCounters').innerHTML = COUNTERS.map(name => {
 								const t = fallbackStatuses[norm(name)];
@@ -288,10 +295,13 @@
 				// persist last called locally for fallback display
 				try { window.lastNowServing = { number, counter, category, ts: Date.now() }; localStorage.setItem(lsKey('last_now_serving'), JSON.stringify(window.lastNowServing)); } catch(e) {}
 
-				// immediately reflect in counters grid tile (without waiting for polling)
+				// immediately reflect in counters grid tile (without waiting for polling) — skip Offline message
 				try {
-					updateCounterTile(counter, number, category);
+					if (!isOfflineVisual) updateCounterTile(counter, number, category);
 				} catch (e) { /* ignore */ }
+
+				// Hold Offline text on NOW SERVING for a short duration so it doesn't get replaced by queue polling
+				try { if (isOfflineVisual) { window.__offlineHoldUntil = Date.now() + 8000; } } catch(_) {}
 
 				// queue automated voice announcement (skip duplicates)
 				if (!isDuplicate && window.speechSynthesis) {
