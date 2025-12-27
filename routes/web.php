@@ -41,6 +41,21 @@ Route::prefix('branch/{branch}')->group(function () {
     Route::get('/screen', [QueueController::class, 'screen'])->name('branch.screen');
 });
 
+// Convenience routes: allow `/branch/printer` and `/branch/screen` without slug
+Route::get('/branch/printer', function () {
+    // If a query ?branch=slug is provided, redirect directly
+    $slug = request('branch');
+    if ($slug) return redirect()->to('/branch/'.$slug.'/printer');
+    // Otherwise show a helper view that attempts client-side redirect using localStorage
+    return view('branch_missing', ['target' => 'printer']);
+})->name('branch.printer.missing');
+
+Route::get('/branch/screen', function () {
+    $slug = request('branch');
+    if ($slug) return redirect()->to('/branch/'.$slug.'/screen');
+    return view('branch_missing', ['target' => 'screen']);
+})->name('branch.screen.missing');
+
 // Queue flows
 Route::get('/printer', [QueueController::class, 'printer'])->name('printer');
 Route::get('/screen', [QueueController::class, 'screen'])->name('screen');
