@@ -86,9 +86,25 @@
                             </div>
                         </div>
                         <script>
+                        // Detect branch from URL path (/branch/{slug}/...) or query (?branch=slug)
+                        function resolveBranchSlug() {
+                            try {
+                                const qp = new URLSearchParams(window.location.search);
+                                if (qp.has('branch')) return qp.get('branch');
+                                const m = (window.location.pathname || '').match(/\/branch\/([^\/]+)/);
+                                if (m && m[1]) return decodeURIComponent(m[1]);
+                                const saved = localStorage.getItem('lastBranchSlug');
+                                return saved || '';
+                            } catch (e) { return ''; }
+                        }
+                        const BRANCH = resolveBranchSlug();
+                        // Persist branch so future loads without /branch can still issue to the right branch
+                        if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
+
                         async function fetchQueueStats() {
                             try {
-                                const res = await fetch('/debug/queue');
+                                const url = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
+                                const res = await fetch(url);
                                 if (!res.ok) return;
                                 const data = await res.json();
                                 const tickets = data.tickets || [];
@@ -134,10 +150,10 @@
         </div>
 
         <script>
-                    const CATEGORIES = @json($categories ?? []);
+                let CATEGORIES = @json($categories ?? []);
                     let categoryCounters = @json($categoryCounters ?? []);
 
-                    let tickets = @json(Session::get('tickets', []));
+                    let tickets = @json((isset($branch) && $branch) ? Session::get('tickets:'.$branch, []) : Session::get('tickets', []));
             let latestTicket = null;
 
             const selectedPriority = document.getElementById('selectedPriorityCategory');
@@ -148,7 +164,20 @@
             const regularNextNumber = document.getElementById('regularNextNumber');
             const queueList = document.getElementById('queueList');
 
-            function populateCategorySelects() {
+            async function ensureCategories() {
+                try {
+                    if (!Array.isArray(CATEGORIES) || CATEGORIES.length === 0) {
+                        const res = await fetch('/categories/all', { cache: 'no-store' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            CATEGORIES = data.categories || [];
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            async function populateCategorySelects() {
+                await ensureCategories();
                 CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedPriority.appendChild(opt);
@@ -188,9 +217,10 @@
                     });
 
             async function generateTicket(categoryObj, priority) {
-                const payload = { mode: 'screen', priority, transaction: categoryObj.id };
+                const payload = { mode: 'screen', priority, transaction: categoryObj.id, branch: BRANCH };
                 try {
-                    const res = await fetch('{{ route('ticket.generate') }}', {
+                    const url = BRANCH ? ('{{ route('ticket.generate') }}' + '?branch=' + encodeURIComponent(BRANCH)) : '{{ route('ticket.generate') }}';
+                    const res = await fetch(url, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -211,13 +241,17 @@
                     } catch (parseErr) {
                         // fallback: refresh session tickets and show a simple confirmation
                         try {
-                            const dbg = await fetch('/debug/queue');
+                            const dbgUrl = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
+                            const dbg = await fetch(dbgUrl);
                             if (dbg.ok) {
                                 const dbgData = await dbg.json();
                                 tickets = dbgData.tickets || tickets;
                                 categoryCounters = dbgData.categoryCounters || categoryCounters;
                                 renderQueue();
                                 showTicketModal(tickets.length ? tickets[tickets.length-1] : null);
+                                // notify other tabs/boards to refresh immediately
+                                try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+                                try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
                                 alert('Ticket was queued on the server; the UI has been refreshed.');
                                 return;
                             }
@@ -232,6 +266,9 @@
                     categoryCounters = data.categoryCounters || categoryCounters;
                     renderQueue();
                     showTicketModal(latestTicket);
+                    // notify other tabs/boards to refresh immediately
+                    try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+                    try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
                 } catch (err) {
                     console.error(err);
                     alert('Failed to generate ticket: ' + (err.message || err));
@@ -303,7 +340,8 @@
             // Keep screen-only issuer live by polling server state
             async function syncFromServer() {
                 try {
-                    const res = await fetch('/debug/queue', { cache: 'no-store' });
+                    const url = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
+                    const res = await fetch(url, { cache: 'no-store' });
                     if (!res.ok) return;
                     const data = await res.json();
                     const incoming = data.tickets || [];
@@ -317,6 +355,25 @@
                 } catch (e) {}
             }
             setInterval(syncFromServer, 2000);
+
+            // Instant refresh on local events: BroadcastChannel + storage
+            const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
+            const CHANNEL_NAME = lsKey('queue-events');
+            try {
+                const ch = new BroadcastChannel(CHANNEL_NAME);
+                ch.onmessage = (ev) => {
+                    const msg = ev && ev.data;
+                    if (!msg) return;
+                    if (msg.type === 'ring' || msg.type === 'crawler') {
+                        syncFromServer();
+                    }
+                };
+            } catch (e) {}
+            window.addEventListener('storage', (e) => {
+                if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving')) {
+                    syncFromServer();
+                }
+            });
         </script>
     </body>
 </html>

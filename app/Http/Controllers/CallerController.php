@@ -4,22 +4,64 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
+use App\Models\Ticket;
+use App\Services\CouchbaseTicketRepository;
 
 class CallerController extends Controller
 {
-    public function index()
+    protected ?CouchbaseTicketRepository $cbRepo = null;
+
+    public function __construct()
     {
+        try {
+            $repo = app()->bound(CouchbaseTicketRepository::class) ? app()->make(CouchbaseTicketRepository::class) : null;
+            $this->cbRepo = $repo instanceof CouchbaseTicketRepository ? $repo : null;
+        } catch (\Throwable $e) {
+            $this->cbRepo = null;
+        }
+        // Prefer PostgreSQL when configured as default DB
+        try {
+            $default = config('database.default');
+            if (strtolower((string) $default) === 'pgsql') {
+                $this->cbRepo = null;
+            }
+        } catch (\Throwable $e) {}
+    }
+    public function index(Request $request)
+    {
+        $branch = $request->route('branch') ?? $request->query('branch');
         $counters = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority'];
         $assigned = Session::get('caller_assigned', null);
-        // expire stale serving tickets on page load
-        $tickets = Session::get('tickets', []);
-        $tickets = $this->expireServingTickets($tickets);
-        Session::put('tickets', $tickets);
+        // initialize page tickets: Couchbase when available, else SQL
+        if ($this->cbRepo && $branch) {
+            $tickets = $this->cbRepo->listByBranch($branch);
+        } else {
+            try {
+                // expire stale serving tickets on page load (DB)
+                if ($branch) {
+                    Ticket::where('branch', $branch)
+                        ->where('status', 'serving')
+                        ->where('called_at', '<', now()->subHour())
+                        ->update(['status' => 'completed', 'completed_at' => now()]);
+                }
+                $tickets = Ticket::when($branch, fn($q)=>$q->where('branch', $branch))
+                    ->orderBy('created_at', 'asc')
+                    ->get()
+                    ->map(function($t){ return $t->toArray(); })
+                    ->all();
+            } catch (\Throwable $e) {
+                // Branch-scoped session fallback
+                $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+            }
+        }
+        // Persist branch-scoped tickets to session
+        Session::put($branch ? ('tickets:'.$branch) : 'tickets', $tickets);
 
         // include categories from QueueController
         $categories = \App\Http\Controllers\QueueController::categoriesList();
-        return view('caller', ['counters' => $counters, 'assigned' => $assigned, 'categories' => $categories]);
+        return view('caller', ['counters' => $counters, 'assigned' => $assigned, 'categories' => $categories, 'branch' => $branch]);
     }
 
     public function assign(Request $request)
@@ -32,83 +74,183 @@ class CallerController extends Controller
     // Call the next customer that matches selected categories
     public function callNext(Request $request)
     {
+        $branch = $request->route('branch') ?? $request->query('branch');
         $selectedCategories = $request->input('categories', []);
         $counter = $request->input('counter', Session::get('caller_assigned'));
 
-        // expire stale serving tickets (e.g., serving > 1 hour)
-        $tickets = Session::get('tickets', []);
-        $tickets = $this->expireServingTickets($tickets);
-        Session::put('tickets', $tickets);
+        if (!$this->cbRepo) {
+            // expire stale serving tickets (DB)
+            try {
+                Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                    ->where('status','serving')
+                    ->where('called_at','<', now()->subHour())
+                    ->update(['status'=>'completed','completed_at'=>now()]);
+            } catch (\Throwable $e) { /* ignore when DB down */ }
+        }
 
 
         // If there's a ticket currently serving at this counter, mark it completed
-        $previousIndex = null;
-        foreach ($tickets as $i => $t) {
-            if ((($t['status'] ?? '') === 'serving') && isset($t['counter']) && $t['counter'] == $counter) {
-                $previousIndex = $i;
-                break;
-            }
-        }
-        if ($previousIndex !== null) {
-            $tickets[$previousIndex]['status'] = 'completed';
-            $tickets[$previousIndex]['completed_at'] = now()->toDateTimeString();
-        }
-
-        // find first waiting ticket that matches selected categories (by category name)
-        $index = null;
-        foreach ($tickets as $i => $t) {
-            if (($t['status'] ?? 'waiting') === 'waiting') {
-                $matches = false;
-                if (empty($selectedCategories)) {
-                    $matches = true;
-                } else {
-                    // check by category id or category name
-                    if (isset($t['category_id']) && in_array($t['category_id'], $selectedCategories)) {
-                        $matches = true;
-                    } elseif (in_array($t['category'], $selectedCategories)) {
-                        $matches = true;
-                    } elseif (in_array($t['id'], $selectedCategories)) {
-                        $matches = true;
-                    }
-                }
-
-                if ($matches) {
-                    $index = $i;
+        $previousTicket = null;
+        if ($this->cbRepo) {
+            // Couchbase path: no counter-specific serving record lookup available here; rely on list and match
+            $list = $branch ? $this->cbRepo->listByBranch($branch) : [];
+            foreach ($list as $doc) {
+                if (($doc['status'] ?? '') === 'serving' && ($doc['counter'] ?? '') === $counter) {
+                    $previousTicket = (object) $doc;
+                    $this->cbRepo->updateStatus($doc['id'], 'completed');
                     break;
                 }
             }
+        } else {
+            try {
+                $previousTicket = Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                    ->where('status','serving')
+                    ->where('counter',$counter)
+                    ->first();
+                if ($previousTicket) {
+                    $previousTicket->status = 'completed';
+                    $previousTicket->completed_at = now();
+                    $previousTicket->save();
+                }
+            } catch (\Throwable $e) {
+                // session fallback: mark any serving at counter as completed
+                $list = session('tickets', []);
+                foreach ($list as &$t) {
+                    if (($t['status'] ?? '') === 'serving' && ($t['counter'] ?? '') === $counter && (!$branch || ($t['branch'] ?? null) === $branch)) {
+                        $t['status'] = 'completed';
+                        $t['completed_at'] = now()->toIso8601String();
+                    }
+                }
+                unset($t);
+                session(['tickets' => $list]);
+            }
         }
 
-        if ($index === null) {
+        // find first waiting ticket that matches selected categories (by category name)
+        $candidate = null;
+        if ($this->cbRepo) {
+            $list = $branch ? $this->cbRepo->listByBranch($branch) : [];
+            foreach ($list as $doc) {
+                if (($doc['status'] ?? '') !== 'waiting') continue;
+                if (!empty($selectedCategories)) {
+                    $cid = $doc['category_id'] ?? $doc['category'] ?? $doc['id'] ?? '';
+                    $match = in_array($cid, $selectedCategories) || in_array(($doc['category'] ?? ''), $selectedCategories);
+                    if (!$match) continue;
+                }
+                $candidate = (object) $doc;
+                break;
+            }
+        } else {
+            try {
+                $candidate = Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                    ->where('status','waiting')
+                    ->when(!empty($selectedCategories), function($q) use ($selectedCategories) {
+                        $q->where(function($sub) use ($selectedCategories) {
+                            $sub->whereIn('category_id', $selectedCategories)
+                                ->orWhereIn('category', $selectedCategories)
+                                ->orWhereIn('id', $selectedCategories);
+                        });
+                    })
+                    ->orderBy('created_at','asc')
+                    ->first();
+            } catch (\Throwable $e) {
+                $candidate = null;
+                $list = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+                foreach ($list as $idx => $t) {
+                    if (($t['status'] ?? '') !== 'waiting') continue;
+                    if ($branch && ($t['branch'] ?? null) !== $branch) continue;
+                    if (!empty($selectedCategories)) {
+                        $cid = $t['category_id'] ?? $t['category'] ?? $t['id'] ?? '';
+                        $match = in_array($cid, $selectedCategories) || in_array(($t['category'] ?? ''), $selectedCategories);
+                        if (!$match) continue;
+                    }
+                    $candidate = (object) $t; break;
+                }
+            }
+        }
+
+        if (! $candidate) {
             return response()->json(['success' => false, 'message' => 'No matching waiting ticket'], 200);
         }
 
-        // mark as serving
-        $tickets[$index]['status'] = 'serving';
-        $tickets[$index]['counter'] = $counter;
-        $tickets[$index]['called_at'] = now()->toDateTimeString();
-        // Do NOT auto-complete any other waiting ticket.
+        // mark as serving in DB
+        if ($this->cbRepo) {
+            $this->cbRepo->updateStatus($candidate->id, 'serving', $counter);
+        } else {
+            try {
+                $candidate->status = 'serving';
+                $candidate->counter = $counter;
+                $candidate->called_at = now();
+                $candidate->save();
+            } catch (\Throwable $e) {
+                $list = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+                foreach ($list as &$t) {
+                    if (($t['id'] ?? '') === ($candidate->id ?? '')) {
+                        $t['status'] = 'serving';
+                        $t['counter'] = $counter;
+                        $t['called_at'] = now()->toIso8601String();
+                    }
+                }
+                unset($t);
+                session([$branch ? ('tickets:'.$branch) : 'tickets' => $list]);
+            }
+            // Also update cache list for cross-client visibility
+            try {
+                $cacheKey = $branch ? ('tickets:'.$branch) : 'tickets';
+                $cached = Cache::get($cacheKey, []);
+                if (is_array($cached) && !empty($cached)) {
+                    foreach ($cached as &$ct) {
+                        if ((($ct['id'] ?? '') === ($candidate->id ?? '')) || (($ct['number'] ?? '') === ($candidate->number ?? ''))) {
+                            $ct['status'] = 'serving';
+                            $ct['counter'] = $counter;
+                            $ct['called_at'] = now()->toIso8601String();
+                        }
+                    }
+                    unset($ct);
+                    Cache::put($cacheKey, $cached, now()->addHours(6));
+                }
+            } catch (\Throwable $e) {}
+        }
 
-        // persist session
-        Session::put('tickets', $tickets);
-        Session::put('serving_number', $tickets[$index]['number']);
-        Session::put('serving_category', $tickets[$index]['category']);
+        Session::put('serving_number', $candidate->number);
+        Session::put('serving_category', $candidate->category);
         Session::put('serving_counter', $counter);
 
+        // Server-side update of last ring (branch-specific) so Display Board fetches per-branch
+        try {
+            $payload = [
+                'number' => (string)($candidate->number ?? ''),
+                'category' => (string)($candidate->category ?? ''),
+                'counter' => (string)$counter,
+                'ts' => (int) round(microtime(true) * 1000),
+                'branch' => (string)($branch ?? ''),
+            ];
+            $key = $branch ? ('queue:last_ring:'.$branch) : 'queue:last_ring';
+            Cache::put($key, $payload, now()->addMinutes(30));
+        } catch (\Exception $e) { /* ignore */ }
+
+        try {
+            $tickets = $this->cbRepo && $branch
+                ? $this->cbRepo->listByBranch($branch)
+                : Ticket::when($branch, fn($q)=>$q->where('branch',$branch))->orderBy('created_at','asc')->get();
+        } catch (\Throwable $e) {
+            $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+        }
         return response()->json([
             'success' => true,
-            'ticket' => $tickets[$index],
+            'ticket' => $candidate,
             'tickets' => $tickets,
-            'serving_number' => $tickets[$index]['number'],
-            'serving_category' => $tickets[$index]['category'],
+            'serving_number' => $candidate->number ?? ($candidate['number'] ?? null),
+            'serving_category' => $candidate->category ?? ($candidate['category'] ?? null),
             'serving_counter' => $counter,
-            'previous_ticket' => $previousIndex !== null ? $tickets[$previousIndex] : null,
+            'previous_ticket' => $previousTicket,
         ], 200);
     }
 
     // Call a specific ticket number (search by number or id)
     public function callSpecific(Request $request)
     {
+        $branch = $request->route('branch') ?? $request->query('branch');
         $number = $request->input('number');
         $counter = $request->input('counter', Session::get('caller_assigned'));
 
@@ -116,49 +258,142 @@ class CallerController extends Controller
             return response()->json(['success' => false, 'message' => 'Missing ticket number'], 400);
         }
 
-        // expire stale serving tickets before assigning specific
-        $tickets = Session::get('tickets', []);
-        $tickets = $this->expireServingTickets($tickets);
-        Session::put('tickets', $tickets);
+        if (!$this->cbRepo) {
+            Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                ->where('status','serving')
+                ->where('called_at','<', now()->subHour())
+            ->update(['status'=>'completed','completed_at'=>now()]);
+        }
+
+        // Server-side update of last ring (branch-specific) so Display Board fetches per-branch
+        try {
+            // Payload will be updated after we locate the ticket below, so skip early cache write here.
+        } catch (\Exception $e) { /* ignore */ }
 
         // complete any existing serving ticket at this counter
-        foreach ($tickets as $i => $t) {
-            if ((($t['status'] ?? '') === 'serving') && isset($t['counter']) && $t['counter'] == $counter) {
-                $tickets[$i]['status'] = 'completed';
-                $tickets[$i]['completed_at'] = now()->toDateTimeString();
-                break;
+        if ($this->cbRepo) {
+            $list = $branch ? $this->cbRepo->listByBranch($branch) : [];
+            foreach ($list as $doc) {
+                if (($doc['status'] ?? '') === 'serving' && ($doc['counter'] ?? '') === $counter) {
+                    $this->cbRepo->updateStatus($doc['id'], 'completed');
+                    break;
+                }
+            }
+        } else {
+            try {
+                $serving = Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                    ->where('status','serving')
+                    ->where('counter',$counter)
+                    ->first();
+                if ($serving) { $serving->status='completed'; $serving->completed_at=now(); $serving->save(); }
+            } catch (\Throwable $e) {
+                $list = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+                foreach ($list as &$t) {
+                    if (($t['status'] ?? '') === 'serving' && ($t['counter'] ?? '') === $counter && (!$branch || ($t['branch'] ?? null) === $branch)) {
+                        $t['status'] = 'completed';
+                        $t['completed_at'] = now()->toIso8601String();
+                    }
+                }
+                unset($t);
+                session([$branch ? ('tickets:'.$branch) : 'tickets' => $list]);
             }
         }
 
         // find the ticket by number or id
-        $index = null;
-        foreach ($tickets as $i => $t) {
-            if ((($t['number'] ?? '') === (string)$number) || (($t['id'] ?? '') === (string)$number)) {
-                $index = $i; break;
+        $ticket = null;
+        if ($this->cbRepo) {
+            $list = $branch ? $this->cbRepo->listByBranch($branch) : [];
+            foreach ($list as $doc) {
+                if ((string)($doc['number'] ?? '') === (string)$number || (string)($doc['id'] ?? '') === (string)$number) {
+                    $ticket = (object) $doc; break;
+                }
+            }
+        } else {
+            try {
+                $ticket = Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+                    ->where(function($q) use ($number){ $q->where('number',(string)$number)->orWhere('id',(string)$number); })
+                    ->first();
+            } catch (\Throwable $e) {
+                $list = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+                foreach ($list as $t) {
+                    if ((string)($t['number'] ?? '') === (string)$number || (string)($t['id'] ?? '') === (string)$number) { $ticket = (object) $t; break; }
+                }
             }
         }
 
-        if ($index === null) {
+        if (! $ticket) {
             return response()->json(['success' => false, 'message' => 'Ticket not found'], 200);
         }
 
         // only serve if currently waiting (you may choose to force-call regardless)
-        if (($tickets[$index]['status'] ?? '') !== 'waiting') {
+        if (($ticket->status ?? ($ticket['status'] ?? null)) !== 'waiting') {
             return response()->json(['success' => false, 'message' => 'Ticket is not waiting'], 200);
         }
 
-        $tickets[$index]['status'] = 'serving';
-        $tickets[$index]['counter'] = $counter;
-        $tickets[$index]['called_at'] = now()->toDateTimeString();
+        if ($this->cbRepo) {
+            $this->cbRepo->updateStatus($ticket->id, 'serving', $counter);
+        } else {
+            try {
+                $ticket->status = 'serving';
+                $ticket->counter = $counter;
+                $ticket->called_at = now();
+                $ticket->save();
+            } catch (\Throwable $e) {
+                $list = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+                foreach ($list as &$t) {
+                    if (($t['id'] ?? '') === ($ticket->id ?? '')) {
+                        $t['status'] = 'serving';
+                        $t['counter'] = $counter;
+                        $t['called_at'] = now()->toIso8601String();
+                    }
+                }
+                unset($t);
+                session([$branch ? ('tickets:'.$branch) : 'tickets' => $list]);
+            }
+            // Also update cache list
+            try {
+                $cacheKey = $branch ? ('tickets:'.$branch) : 'tickets';
+                $cached = Cache::get($cacheKey, []);
+                if (is_array($cached) && !empty($cached)) {
+                    foreach ($cached as &$ct) {
+                        if ((($ct['id'] ?? '') === ($ticket->id ?? '')) || (($ct['number'] ?? '') === ($ticket->number ?? ''))) {
+                            $ct['status'] = 'serving';
+                            $ct['counter'] = $counter;
+                            $ct['called_at'] = now()->toIso8601String();
+                        }
+                    }
+                    unset($ct);
+                    Cache::put($cacheKey, $cached, now()->addHours(6));
+                }
+            } catch (\Throwable $e) {}
+        }
 
-        Session::put('tickets', $tickets);
+        // Branch-specific ring cache for specific call
+        try {
+            $payload = [
+                'number' => (string)($ticket->number ?? ''),
+                'category' => (string)($ticket->category ?? ''),
+                'counter' => (string)$counter,
+                'ts' => (int) round(microtime(true) * 1000),
+                'branch' => (string)($branch ?? ''),
+            ];
+            $key = $branch ? ('queue:last_ring:'.$branch) : 'queue:last_ring';
+            Cache::put($key, $payload, now()->addMinutes(30));
+        } catch (\Exception $e) { /* ignore */ }
 
+        try {
+            $tickets = $this->cbRepo && $branch
+                ? $this->cbRepo->listByBranch($branch)
+                : Ticket::when($branch, fn($q)=>$q->where('branch',$branch))->orderBy('created_at','asc')->get();
+        } catch (\Throwable $e) {
+            $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+        }
         return response()->json([
             'success' => true,
-            'ticket' => $tickets[$index],
+            'ticket' => $ticket,
             'tickets' => $tickets,
-            'serving_number' => $tickets[$index]['number'],
-            'serving_category' => $tickets[$index]['category'],
+            'serving_number' => $ticket->number ?? ($ticket['number'] ?? null),
+            'serving_category' => $ticket->category ?? ($ticket['category'] ?? null),
             'serving_counter' => $counter,
         ], 200);
     }
@@ -169,31 +404,5 @@ class CallerController extends Controller
      * @param array $tickets
      * @return array
      */
-    protected function expireServingTickets(array $tickets): array
-    {
-        $now = Carbon::now();
-        $changed = false;
-        foreach ($tickets as $i => $t) {
-            if (($t['status'] ?? '') === 'serving') {
-                $calledAt = null;
-                if (!empty($t['called_at'])) {
-                    try { $calledAt = Carbon::parse($t['called_at']); } catch (\Exception $e) { $calledAt = null; }
-                }
-                // fallback to timestamp if called_at missing
-                if ($calledAt === null && !empty($t['timestamp'])) {
-                    try { $calledAt = Carbon::parse($t['timestamp']); } catch (\Exception $e) { $calledAt = null; }
-                }
-
-                if ($calledAt !== null) {
-                    $minutes = $calledAt->diffInMinutes($now);
-                    if ($minutes >= 60) {
-                        $tickets[$i]['status'] = 'completed';
-                        $tickets[$i]['completed_at'] = $now->toDateTimeString();
-                        $changed = true;
-                    }
-                }
-            }
-        }
-        return $tickets;
-    }
+    protected function expireServingTickets(array $tickets): array { return $tickets; }
 }

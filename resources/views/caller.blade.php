@@ -8,6 +8,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{{ asset('css/caller.css') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <style>
+      @keyframes crawlerMove {
+        0% { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+      }
+      .crawler-animate { animation: crawlerMove 30s linear infinite; }
+    </style>
   </head>
   <body class="bg-gray-100 min-h-screen">
     <div class="max-w-7xl mx-auto p-6">
@@ -21,14 +28,20 @@
 
         <div class="flex items-center gap-3">
           <div class="px-4 py-2 rounded-lg bg-orange-500 text-white">Caller</div>
-          <button id="toggleDisplayBtn" class="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors">
-            <!-- monitor icon -->
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17h4.5M4 7h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"></path></svg>
-            <span id="displayBtnText">Show Display Board</span>
+          <!-- Add Category (Plus) Button -->
+          <button id="addCategoryBtn" title="Add Category" class="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16M4 12h16"/></svg>
           </button>
+          <!-- Remove Category Controls -->
+          <div class="hidden md:flex items-center gap-2">
+            <select id="removeCategorySelect" class="px-3 py-2 border rounded-lg text-sm">
+              <option value="">Select category to remove</option>
+            </select>
+            <button id="removeCategoryBtn" class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">Remove</button>
+            <button id="crawlerTextBtn" class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Crawler Text</button>
+          </div>
         </div>
       </div>
-
       <div class="grid lg:grid-cols-3 gap-6">
         <!-- Left Panel -->
         <div class="lg:col-span-1 space-y-6">
@@ -41,7 +54,6 @@
               @endforeach
             </select>
           </div>
-
           <!-- Category Filter (single selection) -->
           <div class="bg-white rounded-xl shadow-lg p-6">
             <h2 class="text-gray-900 mb-4">Handle Category</h2>
@@ -61,6 +73,8 @@
           <!-- Call Next -->
           <div class="bg-white rounded-xl shadow-lg p-6">
             <button id="callNextBtn" class="w-full bg-green-500 text-white py-6 rounded-lg hover:bg-green-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-xl">Call Next Customer</button>
+            <button id="callAgainBtn" class="w-full bg-amber-500 text-white py-4 mt-4 rounded-lg hover:bg-amber-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-xl">Call Again</button>
+            <button id="offlineBtn" class="w-full bg-gray-600 text-white py-4 mt-4 rounded-lg hover:bg-gray-700 transition-colors text-xl">Sorry we are offline, please be patient</button>
             <p class="text-center text-gray-600 mt-4"><span id="waitingCount">0</span> customer(s) waiting</p>
             <p id="categoryWarning" class="text-center text-red-500 text-sm mt-2 hidden">Select at least one category</p>
           </div>
@@ -85,6 +99,14 @@
             </button>
           </div>
 
+          <!-- Reports Button -->
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <button id="viewReportsBtn" class="w-full bg-purple-600 text-white py-4 rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6a2 2 0 012-2h8M9 17a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10h10a2 2 0 002-2V9a2 2 0 00-2-2h-8"></path></svg>
+              Reports
+            </button>
+          </div>
+
           <!-- Queue Stats -->
           <div class="bg-white rounded-xl shadow-lg p-6">
             <h3 class="text-gray-900 mb-4">Queue Statistics</h3>
@@ -105,7 +127,8 @@
             <script>
             async function fetchQueueStats() {
                 try {
-                    const res = await fetch('/debug/queue');
+                const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
+                const res = await fetch(url);
                     if (!res.ok) return;
                     const data = await res.json();
                     const tickets = data.tickets || [];
@@ -176,8 +199,15 @@
           </div>
 
           <div class="bg-gray-800 rounded-xl p-6 mb-6">
-            <h2 class="text-yellow-500 text-center text-2xl mb-4">All Counters Status</h2>
+            <h2 class="text-yellow-500 text-center text-3xl mb-4">All Counters Status</h2>
             <div id="displayAllCounters" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4"></div>
+          </div>
+
+          <!-- Crawler below All Counters Status (fixed at bottom of board) -->
+          <div class="absolute left-0 right-0 bottom-0 px-6 pb-4">
+            <div class="bg-black/90 rounded-xl p-5 overflow-hidden border border-yellow-500/40">
+              <div id="displayCrawler" class="text-yellow-400 text-4xl font-semibold whitespace-nowrap crawler-animate">Hello</div>
+            </div>
           </div>
 
           <!-- Removed Waiting and Time panels below the Queue Display Board -->
@@ -198,19 +228,114 @@
           </div>
         </div>
       </div>
+
+      <!-- Crawler Text Modal -->
+      <div id="crawlerTextModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-6">
+        <div class="bg-white rounded-xl w-full max-w-lg p-6 relative">
+          <button id="closeCrawlerText" class="absolute top-4 right-4 text-gray-600">Close</button>
+          <h3 class="text-xl font-semibold mb-4">Set Crawler Text</h3>
+          <input id="crawlerTextInput" type="text" class="w-full border rounded-lg p-3" placeholder="Enter crawler text">
+          <div class="mt-4 flex justify-end gap-2">
+            <button id="saveCrawlerText" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reports Modal -->
+      <div id="reportsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 hidden">
+        <div class="bg-white rounded-xl w-full max-w-4xl p-6 relative">
+          <h3 class="text-xl font-semibold mb-4">Reports</h3>
+          <div class="flex items-center gap-3 mb-4">
+            <button id="reportsTabAll" class="px-4 py-2 rounded-lg bg-gray-200 text-gray-800">All Transactions</button>
+            <button id="exportAllCsvBtn" class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">Export CSV</button>
+            <button id="reportsTabHour" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700">Transactions per Hour</button>
+            <button id="exportHourCsvBtn" class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">Export CSV</button>
+            <!-- Place Close beside Transactions per Hour -->
+            <button id="closeReports" class="ml-auto px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300">Close</button>
+          </div>
+          <div id="reportsAll" class="block">
+            <div class="overflow-auto max-h-[420px] border rounded">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th class="px-3 py-2 text-left">Time</th>
+                    <th class="px-3 py-2 text-left">Number</th>
+                    <th class="px-3 py-2 text-left">Category</th>
+                    <th class="px-3 py-2 text-left">Priority</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Counter</th>
+                  </tr>
+                </thead>
+                <tbody id="reportsAllBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="reportsHour" class="hidden">
+            <div class="overflow-auto max-h-[420px] border rounded">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th class="px-3 py-2 text-left">Hour</th>
+                    <th class="px-3 py-2 text-left">Total Transactions</th>
+                  </tr>
+                </thead>
+                <tbody id="reportsHourBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Category Modal -->
+      <div id="addCategoryModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 hidden">
+        <div class="bg-white rounded-xl w-full max-w-md p-6 relative">
+          <button id="closeAddCategory" class="absolute top-4 right-4 text-gray-600">Close</button>
+          <h3 class="text-xl font-semibold mb-4">Add Transaction Category</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-700 mb-1">Category Name</label>
+              <input id="addCatName" type="text" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" placeholder="e.g., Verification" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-700 mb-1">Type</label>
+              <select id="addCatPriority" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-gray-400">
+                <option value="regular">Regular</option>
+                <option value="priority">Priority</option>
+              </select>
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2">
+              <button id="saveAddCategory" class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors">Save</button>
+            </div>
+            <p id="addCatError" class="text-sm text-red-600 hidden">Please enter a name and select a type.</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-      // initial data from session (tickets may be present)
-    const initialTickets = @json(Session::get('tickets', []));
+      // Resolve active branch from /branch/{slug}/caller or ?branch=...
+      const BRANCH = (() => {
+        const qs = new URLSearchParams(location.search).get('branch');
+        if (qs) return qs;
+        const m = location.pathname.match(/\/branch\/([^\/]+)\//);
+        return m ? m[1] : null;
+      })();
+      // Branch-scoped storage/channel helpers
+      const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
+      const CHANNEL_NAME = lsKey('queue-events');
+      // initial data from session (tickets may be present, branch-scoped)
+    const initialTickets = @json((isset($branch) && $branch) ? Session::get('tickets:'.$branch, []) : Session::get('tickets', []));
   const CATEGORIES = @json($categories ?? []);
   const ALL_COUNTERS = @json($counters ?? []);
-  // server-calculated next numbers per category (id => nextNumber)
-  const CATEGORY_COUNTERS = @json(\App\Http\Controllers\QueueController::categoryCounters());
+  // server-calculated next numbers per category (id => nextNumber); populated via /debug/queue
+  const CATEGORY_COUNTERS = {};
+        // Persist chosen branch for issuer pages to read when opened without /branch
+        if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
 
     let tickets = initialTickets; // array of ticket objects
   let selectedCategories = []; // single selection stored as [id] or []
   let lastCalledTicket = null; // temporary holder for immediate UI update after callNext
+  let lastCallAgainTs = 0; // cooldown tracker for Call Again
 
       const categorySelect = document.getElementById('categorySelect');
       const waitingCountEl = document.getElementById('waitingCount');
@@ -220,6 +345,7 @@
       const queueList = document.getElementById('queueList');
       const currentlyServing = document.getElementById('currentlyServing');
       const callNextBtn = document.getElementById('callNextBtn');
+        const callAgainBtn = document.getElementById('callAgainBtn');
   const currentCounterSelect = document.getElementById('currentCounter');
   const currentCounterLabelEl = document.getElementById('currentCounterLabel');
 
@@ -232,6 +358,15 @@
           opt.textContent = cat.name;
           categorySelect.appendChild(opt);
         });
+        // also refresh remover select
+        const remSel = document.getElementById('removeCategorySelect');
+        if (remSel) {
+          remSel.innerHTML = '<option value="">Select category to remove</option>';
+          CATEGORIES.forEach(cat => {
+            const o = document.createElement('option');
+            o.value = cat.id; o.textContent = cat.name; remSel.appendChild(o);
+          });
+        }
       }
 
       function computeStats() {
@@ -347,7 +482,8 @@
         // Keep Caller view live by polling server state
         async function syncFromServer() {
           try {
-            const res = await fetch('/debug/queue', { cache: 'no-store' });
+            const url = BRANCH ? `/debug/queue?branch=${encodeURIComponent(BRANCH)}` : '/debug/queue';
+            const res = await fetch(url, { cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
             const incoming = data.tickets || [];
@@ -365,6 +501,22 @@
           } catch (e) { /* ignore */ }
         }
         setInterval(syncFromServer, 2000);
+        // Instant refresh on local events: BroadcastChannel + storage
+        try {
+          const ch = new BroadcastChannel(CHANNEL_NAME);
+          ch.onmessage = (ev) => {
+            const msg = ev && ev.data;
+            if (!msg) return;
+            if (msg.type === 'ring' || msg.type === 'crawler' || msg.type === 'queue-update' || msg.type === 'ticket-issued') {
+              syncFromServer();
+            }
+          };
+        } catch (e) {}
+        window.addEventListener('storage', (e) => {
+          if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving') || e.key === lsKey('queue_updated')) {
+            syncFromServer();
+          }
+        });
       // category selection handling moved to dropdown change event above
 
       // Call next - send selected categories and current counter to server
@@ -377,13 +529,13 @@
         callNextBtn.disabled = true;
         const counter = document.getElementById('currentCounter').value;
         try {
-          const res = await fetch('{{ route('caller.callNext') }}', {
+          const res = await fetch('{{ route('caller.callNext') }}' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : ''), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
             },
-            body: JSON.stringify({ categories: selectedCategories, counter })
+            body: JSON.stringify({ categories: selectedCategories, counter, branch: BRANCH })
           });
           const data = await res.json();
           if (data.success) {
@@ -407,8 +559,9 @@
             try {
               const sharedTs = Date.now();
               const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
-              try { const ch = new BroadcastChannel('queue-events'); ch.postMessage(payload); } catch(e) {}
-              try { localStorage.setItem('queue_ring', JSON.stringify(payload)); } catch(e) {}
+              try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
+              try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
+              try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
               try {
                 fetch('/ring', {
                   method: 'POST',
@@ -416,6 +569,9 @@
                   body: JSON.stringify(payload)
                 }).catch(() => {});
               } catch(e) {}
+              // also broadcast a queue-update so boards refresh counters/waiting instantly
+              try { const ch2 = new BroadcastChannel(CHANNEL_NAME); ch2.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+              try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
             } catch(e) {}
           } else {
             alert(data.message || 'No matching ticket');
@@ -427,6 +583,67 @@
           callNextBtn.disabled = false;
         }
       });
+
+      // Call Again - re-announce current or last-called ticket for selected counter
+      if (callAgainBtn) {
+        callAgainBtn.addEventListener('click', async () => {
+          const now = Date.now();
+          if (now - lastCallAgainTs < 3000) { return; }
+          lastCallAgainTs = now;
+          callAgainBtn.disabled = true;
+          try {
+            const counter = currentCounterSelect ? currentCounterSelect.value : (currentCounterLabelEl ? currentCounterLabelEl.textContent : '');
+            let ticket = (tickets || []).find(t => t.status === 'serving' && String(t.counter) === String(counter));
+            if (!ticket && lastCalledTicket && String(lastCalledTicket.counter) === String(counter)) {
+              ticket = lastCalledTicket;
+            }
+            if (!ticket) { alert('No active call for this counter'); return; }
+            const sharedTs = Date.now();
+            const payload = { type: 'ring', number: ticket.number, category: ticket.category || '', counter, ts: sharedTs };
+            try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
+            try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
+            try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
+            try {
+              fetch('/ring', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') },
+                body: JSON.stringify(payload)
+              }).catch(() => {});
+            } catch(e) {}
+            // broadcast queue-update so boards refresh immediately
+            try { const ch2 = new BroadcastChannel(CHANNEL_NAME); ch2.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+            try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
+          } catch(e) {
+            console.error(e);
+            alert('Error calling again');
+          } finally {
+            setTimeout(() => { callAgainBtn.disabled = false; }, 3000);
+          }
+        });
+      }
+
+      // Offline notice: ring like a number to Display Board
+      const offlineBtn = document.getElementById('offlineBtn');
+      if (offlineBtn) {
+        offlineBtn.addEventListener('click', () => {
+          const msg = 'Sorry we are offline, please be patient';
+          try {
+            const counter = currentCounterSelect ? currentCounterSelect.value : (currentCounterLabelEl ? currentCounterLabelEl.textContent : '-');
+            const sharedTs = Date.now();
+            const payload = { type: 'ring', number: msg, category: 'Offline', counter, ts: sharedTs };
+            try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
+            try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
+            try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
+            try {
+              fetch('/ring', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') },
+                body: JSON.stringify(payload)
+              }).catch(() => {});
+            } catch(e) {}
+          } catch(e) { /* ignore */ }
+        });
+      }
 
       // Call specific number
       const specificInput = document.getElementById('specificNumberInput');
@@ -440,13 +657,13 @@
           callSpecificBtn.disabled = true;
           const counter = document.getElementById('currentCounter').value;
           try {
-            const res = await fetch('{{ route('caller.callSpecific') }}', {
+            const res = await fetch('{{ route('caller.callSpecific') }}' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : ''), {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
               },
-              body: JSON.stringify({ number: val, counter })
+              body: JSON.stringify({ number: val, counter, branch: BRANCH })
             });
 
             // ring binding already initialized globally
@@ -460,8 +677,9 @@
               try {
                 const sharedTs = Date.now();
                 const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
-                try { const ch = new BroadcastChannel('queue-events'); ch.postMessage(payload); } catch(e) {}
-                try { localStorage.setItem('queue_ring', JSON.stringify(payload)); } catch(e) {}
+                try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
+                try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
+                try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
                 try {
                   fetch('/ring', {
                     method: 'POST',
@@ -485,15 +703,21 @@
       // Display board
       const displayBoard = document.getElementById('displayBoard');
       const displayBtnText = document.getElementById('displayBtnText');
-      document.getElementById('toggleDisplayBtn').addEventListener('click', () => {
-        displayBoard.classList.toggle('hidden');
-        displayBtnText.textContent = displayBoard.classList.contains('hidden') ? 'Show Display Board' : 'Hide Display Board';
-        renderDisplay();
-      });
-      document.getElementById('closeDisplay').addEventListener('click', () => {
-        displayBoard.classList.add('hidden');
-        displayBtnText.textContent = 'Show Display Board';
-      });
+      const toggleDisplayBtn = document.getElementById('toggleDisplayBtn');
+      if (toggleDisplayBtn) {
+        toggleDisplayBtn.addEventListener('click', () => {
+          displayBoard.classList.toggle('hidden');
+          if (displayBtnText) displayBtnText.textContent = displayBoard.classList.contains('hidden') ? 'Show Display Board' : 'Hide Display Board';
+          renderDisplay();
+        });
+      }
+      const closeDisplayBtn = document.getElementById('closeDisplay');
+      if (closeDisplayBtn) {
+        closeDisplayBtn.addEventListener('click', () => {
+          displayBoard.classList.add('hidden');
+          if (displayBtnText) displayBtnText.textContent = 'Show Display Board';
+        });
+      }
 
       function renderDisplay() {
         // populate Now Serving
@@ -524,9 +748,9 @@
             const div = document.createElement('div');
             div.className = 'bg-black rounded-lg p-4 text-center';
             div.innerHTML = `
-              <p class="text-gray-400 text-sm mb-2">${counterName}</p>
-              <p class="text-white text-3xl">${servingTicket ? servingTicket.number : '---'}</p>
-              ${servingTicket ? `<p class="text-gray-500 text-xs mt-2 truncate">${servingTicket.category}</p>` : ''}
+              <p class="text-gray-400 text-xl mb-2">${counterName}</p>
+              <p class="text-white text-5xl">${servingTicket ? servingTicket.number : '---'}</p>
+              ${servingTicket ? `<p class="text-gray-500 text-base mt-2 truncate">${servingTicket.category}</p>` : ''}
             `;
             allCountersEl.appendChild(div);
           });
@@ -543,6 +767,18 @@
         if (timeEl) {
           const now = new Date();
           timeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        // crawler text from localStorage with default 'Hello'
+        const crawlerEl = document.getElementById('displayCrawler');
+        if (crawlerEl) {
+          const text = localStorage.getItem(lsKey('crawler_text')) || 'Hello';
+          // restart animation by toggling class
+          crawlerEl.classList.remove('crawler-animate');
+          // force reflow
+          void crawlerEl.offsetWidth;
+          crawlerEl.textContent = text;
+          crawlerEl.classList.add('crawler-animate');
         }
       }
 
@@ -602,6 +838,288 @@
       }
       updateClock();
       setInterval(updateClock, 1000);
+
+      // Reports helpers
+      const reportsModal = document.getElementById('reportsModal');
+      const viewReportsBtn = document.getElementById('viewReportsBtn');
+      const closeReportsBtn = document.getElementById('closeReports');
+      const reportsAllBody = document.getElementById('reportsAllBody');
+      const reportsHourBody = document.getElementById('reportsHourBody');
+      const reportsTabAll = document.getElementById('reportsTabAll');
+      const reportsTabHour = document.getElementById('reportsTabHour');
+      const reportsAll = document.getElementById('reportsAll');
+      const reportsHour = document.getElementById('reportsHour');
+      const exportHourCsvBtn = document.getElementById('exportHourCsvBtn');
+      const exportAllCsvBtn = document.getElementById('exportAllCsvBtn');
+
+      function fmtDateTime(ts) {
+        try { const d = new Date(ts); return d.toLocaleString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) { return ts; }
+      }
+      function hourKey(ts) {
+        const d = new Date(ts);
+        const y = d.getFullYear();
+        const m = String(d.getMonth()+1).padStart(2,'0');
+        const day = String(d.getDate()).padStart(2,'0');
+        const h = String(d.getHours()).padStart(2,'0');
+        return `${y}-${m}-${day} ${h}:00`;
+      }
+
+      function renderReportsTables(sourceTickets) {
+        // All transactions
+        reportsAllBody.innerHTML = '';
+        const list = (sourceTickets || []).slice().sort((a,b)=> new Date(a.timestamp) - new Date(b.timestamp));
+        // cache for export
+        window.__reportsAllList = list;
+        list.forEach(t => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="px-3 py-2">${fmtDateTime(t.timestamp)}</td>
+            <td class="px-3 py-2">${t.number}</td>
+            <td class="px-3 py-2">${t.category || t.category_id || ''}</td>
+            <td class="px-3 py-2">${t.priority || ''}</td>
+            <td class="px-3 py-2">${t.status || ''}</td>
+            <td class="px-3 py-2">${t.counter || ''}</td>
+          `;
+          reportsAllBody.appendChild(tr);
+        });
+
+        // Per-hour aggregation
+        const map = {};
+        list.forEach(t => { const k = hourKey(t.timestamp); map[k] = (map[k]||0) + 1; });
+        reportsHourBody.innerHTML = '';
+        Object.entries(map).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([k, cnt]) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td class="px-3 py-2">${k}</td><td class="px-3 py-2">${cnt}</td>`;
+          reportsHourBody.appendChild(tr);
+        });
+        // cache for export
+        window.__reportsHourMap = map;
+      }
+
+      async function showReports() {
+        try {
+          const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok) { renderReportsTables(tickets); } else { const data = await res.json(); renderReportsTables(data.tickets || tickets); }
+        } catch (e) { renderReportsTables(tickets); }
+        reportsModal.classList.remove('hidden');
+        // default tab
+        reportsAll.classList.remove('hidden');
+        reportsHour.classList.add('hidden');
+        reportsTabAll.classList.add('bg-gray-200');
+        reportsTabHour.classList.remove('bg-gray-200');
+      }
+      function closeReports() { reportsModal.classList.add('hidden'); }
+      function showAllTab() {
+        reportsAll.classList.remove('hidden');
+        reportsHour.classList.add('hidden');
+        reportsTabAll.classList.add('bg-gray-200');
+        reportsTabHour.classList.remove('bg-gray-200');
+      }
+      function showHourTab() {
+        reportsAll.classList.add('hidden');
+        reportsHour.classList.remove('hidden');
+        reportsTabHour.classList.add('bg-gray-200');
+        reportsTabAll.classList.remove('bg-gray-200');
+      }
+      viewReportsBtn.addEventListener('click', showReports);
+      closeReportsBtn.addEventListener('click', closeReports);
+      reportsTabAll.addEventListener('click', showAllTab);
+      reportsTabHour.addEventListener('click', showHourTab);
+
+      async function exportHourCsv() {
+        try {
+          // Refresh data quickly to ensure latest counts
+          try {
+            const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
+            const res = await fetch(url, { cache: 'no-store' });
+            if (res.ok) {
+              const data = await res.json();
+              renderReportsTables(data.tickets || tickets);
+            }
+          } catch (e) {}
+          const map = window.__reportsHourMap || {};
+          const rows = [['Hour', 'Total Transactions']];
+          Object.entries(map).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([hour, cnt]) => rows.push([hour, String(cnt)]));
+          const csv = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'transactions_per_hour.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e) { alert('Failed to export CSV'); }
+      }
+      if (exportHourCsvBtn) exportHourCsvBtn.addEventListener('click', exportHourCsv);
+
+      function exportAllCsv() {
+        try {
+          const rows = [['Time','Number','Category','Priority','Status','Counter']];
+          const list = window.__reportsAllList || [];
+          list.forEach(t => {
+            const time = fmtDateTime(t.timestamp);
+            const number = t.number ?? '';
+            const category = (t.category ?? t.category_id ?? '');
+            const priority = t.priority ?? '';
+            const status = t.status ?? '';
+            const counter = t.counter ?? '';
+            rows.push([time, number, category, priority, status, counter]);
+          });
+          const csv = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'transactions_all.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e) { alert('Failed to export CSV'); }
+      }
+      if (exportAllCsvBtn) exportAllCsvBtn.addEventListener('click', exportAllCsv);
+
+      // Add Category interactions
+      const addCategoryBtn = document.getElementById('addCategoryBtn');
+      const addCategoryModal = document.getElementById('addCategoryModal');
+      const closeAddCategory = document.getElementById('closeAddCategory');
+      const saveAddCategory = document.getElementById('saveAddCategory');
+      const addCatName = document.getElementById('addCatName');
+      const addCatPriority = document.getElementById('addCatPriority');
+      const addCatError = document.getElementById('addCatError');
+
+      function openAddCategory() {
+        addCatName.value = '';
+        addCatPriority.value = 'regular';
+        addCatError.classList.add('hidden');
+        addCategoryModal.classList.remove('hidden');
+      }
+      function closeAddCategoryModal() {
+        addCategoryModal.classList.add('hidden');
+      }
+      addCategoryBtn.addEventListener('click', openAddCategory);
+      closeAddCategory.addEventListener('click', closeAddCategoryModal);
+
+      async function submitAddCategory() {
+        const name = (addCatName.value || '').trim();
+        const priority = addCatPriority.value || 'regular';
+        if (!name || !priority) { addCatError.classList.remove('hidden'); return; }
+        addCatError.classList.add('hidden');
+        saveAddCategory.disabled = true;
+        try {
+          const res = await fetch('{{ route('categories.add') }}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({ name, priority })
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert(data.message || 'Failed to add category');
+            return;
+          }
+          // Update local categories and re-render dropdown
+          if (data.category) {
+            CATEGORIES.push(data.category);
+            renderCategories();
+            // auto-select the newly added category
+            if (categorySelect) {
+              categorySelect.value = data.category.id;
+              selectedCategories = [data.category.id];
+            }
+            renderCurrentlyServing();
+          }
+          closeAddCategoryModal();
+        } catch (e) {
+          alert('Error adding category');
+        } finally {
+          saveAddCategory.disabled = false;
+        }
+      }
+      saveAddCategory.addEventListener('click', submitAddCategory);
+
+      // Remove category logic
+      const removeCategoryBtn = document.getElementById('removeCategoryBtn');
+      const removeCategorySelect = document.getElementById('removeCategorySelect');
+      async function removeSelectedCategory() {
+        const id = removeCategorySelect.value;
+        if (!id) { alert('Select a category to remove'); return; }
+        if (!confirm('Remove this category?')) return;
+        removeCategoryBtn.disabled = true;
+        try {
+          const res = await fetch('{{ route('categories.remove') }}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({ id })
+          });
+          const data = await res.json();
+          if (!data.ok) { alert(data.message || 'Failed to remove'); return; }
+          // mutate local CATEGORIES array
+          const idx = CATEGORIES.findIndex(c => c.id === id);
+          if (idx >= 0) CATEGORIES.splice(idx, 1);
+          renderCategories();
+          // if removed one was selected for handling, clear selection
+          if (selectedCategories.includes(id)) {
+            selectedCategories = [];
+            if (categorySelect) categorySelect.value = '';
+            renderCurrentlyServing();
+          }
+        } catch (e) {
+          alert('Error removing category');
+        } finally {
+          removeCategoryBtn.disabled = false;
+        }
+      }
+      if (removeCategoryBtn) removeCategoryBtn.addEventListener('click', removeSelectedCategory);
+
+      // Crawler Text controls
+      const crawlerTextBtn = document.getElementById('crawlerTextBtn');
+      const crawlerTextModal = document.getElementById('crawlerTextModal');
+      const closeCrawlerText = document.getElementById('closeCrawlerText');
+      const saveCrawlerText = document.getElementById('saveCrawlerText');
+      const crawlerTextInput = document.getElementById('crawlerTextInput');
+
+      function openCrawlerModal() {
+        const current = localStorage.getItem(lsKey('crawler_text')) || 'Hello';
+        crawlerTextInput.value = current;
+        crawlerTextModal.classList.remove('hidden');
+        crawlerTextModal.classList.add('flex');
+      }
+      function closeCrawlerModal() {
+        crawlerTextModal.classList.add('hidden');
+        crawlerTextModal.classList.remove('flex');
+      }
+      function applyCrawlerTextToDom(text) {
+        const el = document.getElementById('displayCrawler');
+        if (!el) return;
+        el.classList.remove('crawler-animate');
+        void el.offsetWidth;
+        el.textContent = text;
+        el.classList.add('crawler-animate');
+      }
+      function saveCrawler() {
+        const val = (crawlerTextInput.value || '').trim() || 'Hello';
+        localStorage.setItem(lsKey('crawler_text'), val);
+        applyCrawlerTextToDom(val);
+        // also broadcast to other tabs if available
+        try {
+          const ch = new BroadcastChannel(CHANNEL_NAME);
+          ch.postMessage({ type: 'crawler', text: val });
+        } catch(e) { /* ignore */ }
+        closeCrawlerModal();
+      }
+
+      if (crawlerTextBtn) crawlerTextBtn.addEventListener('click', openCrawlerModal);
+      if (closeCrawlerText) closeCrawlerText.addEventListener('click', closeCrawlerModal);
+      if (saveCrawlerText) saveCrawlerText.addEventListener('click', saveCrawler);
     </script>
   </body>
 </html>
