@@ -565,7 +565,7 @@
             // Broadcast the call so Display Board announces automatically (single shared ts)
             try {
               const sharedTs = Date.now();
-              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
+              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
               try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
               try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
               try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
