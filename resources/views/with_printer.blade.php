@@ -33,6 +33,11 @@
                         </div>
                         <select id="selectedPriorityCategory" class="w-full px-4 py-3 border-2 border-red-300 rounded-lg mb-4 text-gray-900 focus:outline-none focus:border-red-500">
                             <option value="">Select Transaction Type</option>
+                            @foreach(($categories ?? []) as $cat)
+                                @if(($cat['priority'] ?? 'regular') === 'priority')
+                                    <option value="{{ $cat['id'] }}">{{ $cat['name'] }} ({{ $cat['rangeStart'] }}-{{ $cat['rangeEnd'] }})</option>
+                                @endif
+                            @endforeach
                         </select>
 
                         <div id="priorityNextNumber" class="mb-4 p-3 bg-red-50 rounded-lg hidden">
@@ -51,6 +56,11 @@
                         <h2 class="text-gray-900 mb-4">Regular Ticket</h2>
                         <select id="selectedRegularCategory" class="w-full px-4 py-3 border-2 border-blue-300 rounded-lg mb-4 text-gray-900 focus:outline-none focus:border-blue-500">
                             <option value="">Select Transaction Type</option>
+                            @foreach(($categories ?? []) as $cat)
+                                @if(($cat['priority'] ?? 'regular') === 'regular')
+                                    <option value="{{ $cat['id'] }}">{{ $cat['name'] }} ({{ $cat['rangeStart'] }}-{{ $cat['rangeEnd'] }})</option>
+                                @endif
+                            @endforeach
                         </select>
 
                         <div id="regularNextNumber" class="mb-4 p-3 bg-blue-50 rounded-lg hidden">
