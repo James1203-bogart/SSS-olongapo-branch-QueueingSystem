@@ -1,3 +1,4 @@
+Route::get('/queueing_info', function () { return view('queueing_info'); });
 <?php
 
 use Illuminate\Support\Facades\Route;
