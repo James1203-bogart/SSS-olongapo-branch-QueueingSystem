@@ -1,4 +1,3 @@
-
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -41,21 +40,6 @@ Route::prefix('branch/{branch}')->group(function () {
     Route::get('/screen', [QueueController::class, 'screen'])->name('branch.screen');
 });
 
-// Convenience routes: allow `/branch/printer` and `/branch/screen` without slug
-Route::get('/branch/printer', function () {
-    // If a query ?branch=slug is provided, redirect directly
-    $slug = request('branch');
-    if ($slug) return redirect()->to('/branch/'.$slug.'/printer');
-    // Otherwise show a helper view that attempts client-side redirect using localStorage
-    return view('branch_missing', ['target' => 'printer']);
-})->name('branch.printer.missing');
-
-Route::get('/branch/screen', function () {
-    $slug = request('branch');
-    if ($slug) return redirect()->to('/branch/'.$slug.'/screen');
-    return view('branch_missing', ['target' => 'screen']);
-})->name('branch.screen.missing');
-
 // Queue flows
 Route::get('/printer', [QueueController::class, 'printer'])->name('printer');
 Route::get('/screen', [QueueController::class, 'screen'])->name('screen');
@@ -77,72 +61,6 @@ Route::get('/caller', [CallerController::class, 'index'])->name('caller.index');
 Route::post('/caller/assign', [CallerController::class, 'assign'])->name('caller.assign');
 Route::post('/caller/call-next', [CallerController::class, 'callNext'])->name('caller.callNext');
 Route::post('/caller/call-specific', [CallerController::class, 'callSpecific'])->name('caller.callSpecific');
-// Debug route: returns current DB tickets (scoped by branch) and category counters
-Route::get('/debug/queue', function () {
-    $branch = request()->route('branch') ?? request('branch');
-    $cbRepo = app()->bound(\App\Services\CouchbaseTicketRepository::class) ? app()->make(\App\Services\CouchbaseTicketRepository::class) : null;
-    try {
-        $tickets = ($cbRepo && $branch)
-            ? $cbRepo->listByBranch($branch)
-            : \App\Models\Ticket::when($branch, fn($q)=>$q->where('branch',$branch))->orderBy('created_at','asc')->get();
-    } catch (\Throwable $e) {
-        // Branch-scoped Cache fallback, then session
-        $cacheKey = $branch ? ('tickets:'.$branch) : 'tickets';
-        $tickets = Illuminate\Support\Facades\Cache::get($cacheKey);
-        if (!is_array($tickets) || empty($tickets)) {
-            $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
-        }
-    }
-    // If DB returned empty and Couchbase not used, try Cache fallback to cover non-shared sessions
-    if ((!$tickets || (is_array($tickets) && count($tickets) === 0)) && !$cbRepo) {
-        $cacheKey = $branch ? ('tickets:'.$branch) : 'tickets';
-        $fromCache = Illuminate\Support\Facades\Cache::get($cacheKey);
-        if (is_array($fromCache) && !empty($fromCache)) { $tickets = $fromCache; }
-    }
-    $qc = app()->make(\App\Http\Controllers\QueueController::class);
-    return response()->json([
-        'tickets' => $tickets,
-        'last_ticket' => $branch ? session('last_ticket:'.$branch) : session('last_ticket'),
-        'categoryCounters' => $qc->categoryCounters($branch),
-    ]);
-});
-
-// Debug route: create sample tickets for Corporate Priority and E-Center Priority
-Route::get('/debug/queue/issue-sample', function () {
-    $all = \App\Http\Controllers\QueueController::categoriesList();
-    $qc = app()->make(\App\Http\Controllers\QueueController::class);
-    $counters = $qc->categoryCounters(null);
-    $tickets = session('tickets', []);
-
-    $sampleIds = ['corporate-priority', 'ecenter-priority'];
-    foreach ($sampleIds as $sid) {
-        $cat = null;
-        foreach ($all as $c) if ($c['id'] === $sid) { $cat = $c; break; }
-        if (! $cat) continue;
-        $next = $counters[$sid] ?? ($cat['rangeStart'] ?? 1);
-        $ticket = [
-            'id' => uniqid('t'),
-            'number' => (string) $next,
-            'priority' => $cat['priority'] ?? 'priority',
-            'category' => $cat['name'],
-            'category_id' => $sid,
-            'mode' => 'printer',
-            'timestamp' => now()->toIso8601String(),
-            'status' => 'waiting',
-        ];
-        $tickets[] = $ticket;
-        // increment local counter so next sample won't reuse same number
-        $counters[$sid] = $next + 1;
-    }
-
-    session(['tickets' => $tickets, 'last_ticket' => end($tickets)]);
-
-    $qc = app()->make(\App\Http\Controllers\QueueController::class);
-    return response()->json([
-        'tickets' => $tickets,
-        'categoryCounters' => $qc->categoryCounters(null),
-    ]);
-});
 
 // Ring endpoints for cross-device announcements
 Route::post('/ring', function (Request $request) {
@@ -184,22 +102,30 @@ Route::get('/counters/status', function () {
     try {
         if ($cbRepo && $branch) {
             $tickets = $cbRepo->listByBranch($branch);
+            $tickets = array_filter($tickets, fn($t) => isset($t['called_at']) && $t['called_at']);
+            usort($tickets, fn($a, $b) => strtotime($b['called_at'] ?? '1970-01-01') <=> strtotime($a['called_at'] ?? '1970-01-01'));
+            $tickets = array_map(fn($t) => [ 'number'=>$t['number'], 'category'=>$t['category'], 'counter'=>$t['counter'] ], $tickets);
         } else {
             $tickets = \App\Models\Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
-                ->where('status','serving')
+                ->whereNotNull('called_at')
+                ->orderBy('called_at', 'desc')
                 ->get(['number','category','counter'])
                 ->map(fn($t)=>[ 'number'=>$t->number, 'category'=>$t->category, 'counter'=>$t->counter ])
                 ->all();
         }
     } catch (\Throwable $e) {
         $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
-        $tickets = array_values(array_filter($tickets, fn($t)=>($t['status'] ?? '') === 'serving'));
+        $tickets = array_values(array_filter($tickets, fn($t)=>isset($t['called_at'])));
+        // Sort by called_at desc if available
+        usort($tickets, fn($a, $b) => strtotime($b['called_at'] ?? '1970-01-01') <=> strtotime($a['called_at'] ?? '1970-01-01'));
     }
 
     $byCounter = [];
     foreach ($tickets as $t) {
         $c = $t['counter'] ?? '';
-        if ($c !== '') { $byCounter[$norm($c)] = [ 'number' => ($t['number'] ?? '---'), 'category' => ($t['category'] ?? '') ]; }
+        if ($c !== '' && !isset($byCounter[$norm($c)])) {
+            $byCounter[$norm($c)] = [ 'number' => ($t['number'] ?? '---'), 'category' => ($t['category'] ?? '') ];
+        }
     }
 
     foreach ($COUNTERS as $name) {
@@ -207,16 +133,10 @@ Route::get('/counters/status', function () {
         if (isset($byCounter[$key])) { $statuses[$name] = $byCounter[$key]; }
     }
 
-    // Fallback: use last ring payload cached per-branch to fill its counter (skip Offline message)
+    // Fallback: use last ring payload cached per-branch to fill its counter
     try {
         $payload = Cache::get($branch ? ('queue:last_ring:'.$branch) : 'queue:last_ring');
-        $isOffline = false;
-        if ($payload) {
-            $cat = strtolower(trim((string)($payload['category'] ?? '')));
-            $num = strtolower(trim((string)($payload['number'] ?? '')));
-            $isOffline = ($cat === 'offline') || (strpos($num, 'offline') !== false);
-        }
-        if ($payload && !empty($payload['counter']) && !$isOffline) {
+        if ($payload && !empty($payload['counter'])) {
             $k = $norm($payload['counter']);
             foreach ($COUNTERS as $name) {
                 if ($norm($name) === $k) { $statuses[$name] = [ 'number' => ($payload['number'] ?? '---'), 'category' => ($payload['category'] ?? '') ]; break; }
@@ -229,3 +149,21 @@ Route::get('/counters/status', function () {
         'counters' => $statuses,
     ]);
 })->name('counters.status');
+
+// API: Get all tickets for a branch (for live polling)
+Route::get('/api/tickets', function (Request $request) {
+    $branch = $request->route('branch') ?? $request->query('branch');
+    $cbRepo = app()->bound(\App\Services\CouchbaseTicketRepository::class) ? app()->make(\App\Services\CouchbaseTicketRepository::class) : null;
+    try {
+        $tickets = ($cbRepo && $branch)
+            ? $cbRepo->listByBranch($branch)
+            : \App\Models\Ticket::when($branch, fn($q)=>$q->where('branch',$branch))->orderBy('created_at','asc')->get();
+    } catch (\Throwable $e) {
+        $cacheKey = $branch ? ('tickets:'.$branch) : 'tickets';
+        $tickets = Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (!is_array($tickets) || empty($tickets)) {
+            $tickets = $branch ? session('tickets:'.$branch, []) : session('tickets', []);
+        }
+    }
+    return response()->json(['tickets' => $tickets]);
+});

@@ -3,10 +3,30 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Number Issuer (Screen)</title>
+        <title>Number Issuer (Thermal)</title>
         <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="stylesheet" href="{{ asset('css/without_printer.css') }}">
+        <link rel="stylesheet" href="{{ asset('css/with_printer.css') }}">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        <style>
+            @media print {
+              body * { visibility: hidden !important; }
+              #printArea, #printArea * { visibility: visible !important; }
+              #printArea {
+                position: absolute !important;
+                left: 0; top: 0;
+                width: 80mm !important;
+                height: 100mm !important;
+                background: #fff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: center !important;
+                align-items: center !important;
+              }
+            }
+        </style>
     </head>
     <body class="bg-gray-100 min-h-screen">
         <div class="max-w-7xl mx-auto p-6">
@@ -18,7 +38,7 @@
                 </button>
                 <div class="flex items-center gap-3">
                     <div class="px-4 py-2 rounded-lg bg-purple-500 text-white">Number Issuer</div>
-                    <div id="printerTypeBadge" class="px-4 py-2 rounded-lg bg-green-500 text-white">Screen Display</div>
+                    <div id="printerTypeBadge" class="px-4 py-2 rounded-lg bg-blue-500 text-white">Thermal Printer</div>
                 </div>
             </div>
 
@@ -85,42 +105,6 @@
                                 <span id="totalServed" class="text-gray-600">0</span>
                             </div>
                         </div>
-                        <script>
-                        // Detect branch from URL path (/branch/{slug}/...) or query (?branch=slug)
-                        function resolveBranchSlug() {
-                            try {
-                                const qp = new URLSearchParams(window.location.search);
-                                if (qp.has('branch')) return qp.get('branch');
-                                const m = (window.location.pathname || '').match(/\/branch\/([^\/]+)/);
-                                if (m && m[1]) return decodeURIComponent(m[1]);
-                                const saved = localStorage.getItem('lastBranchSlug');
-                                return saved || '';
-                            } catch (e) { return ''; }
-                        }
-                        const BRANCH = resolveBranchSlug();
-                        // Persist branch so future loads without /branch can still issue to the right branch
-                        if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
-
-                        async function fetchQueueStats() {
-                            try {
-                                const url = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
-                                const res = await fetch(url);
-                                if (!res.ok) return;
-                                const data = await res.json();
-                                const tickets = data.tickets || [];
-                                const priorityWaiting = tickets.filter(t => t.status === 'waiting' && t.priority === 'priority').length;
-                                const regularWaiting = tickets.filter(t => t.status === 'waiting' && t.priority !== 'priority').length;
-                                const serving = tickets.find(t => t.status === 'serving');
-                                const totalServed = tickets.filter(t => t.status === 'completed').length;
-                                document.getElementById('priorityWaiting').textContent = priorityWaiting;
-                                document.getElementById('regularWaiting').textContent = regularWaiting;
-                                document.getElementById('servingNumber').textContent = serving ? serving.number : '-';
-                                document.getElementById('totalServed').textContent = totalServed;
-                            } catch (e) {}
-                        }
-                        setInterval(fetchQueueStats, 2000);
-                        fetchQueueStats();
-                        </script>
                     </div>
                 </div>
 
@@ -135,40 +119,31 @@
                 </div>
             </div>
 
-            <!-- Ticket Display Modal (for no-thermal mode) -->
-            <div id="ticketModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden">
-                <div class="bg-white p-6 rounded-xl w-80 text-center">
-                    <div class="text-sm text-gray-600">Queue Ticket</div>
-                    <div id="modalNumber" class="text-4xl font-bold mt-2">-</div>
-                    <div id="modalCategory" class="text-gray-600 mt-1">-</div>
-                    <div class="mt-4">
-                        <button id="closeModal" class="px-4 py-2 bg-gray-200 rounded">Close</button>
-                    </div>
-                </div>
-            </div>
-
+            <!-- Note: thermal printing will open the printable ticket page in a new window/tab -->
         </div>
 
-        <script>
-                let CATEGORIES = @json($categories ?? []);
-                    const DEFAULT_CATEGORIES = [
-                        { id: 'acop', name: 'ACOP', priority: 'regular', rangeStart: 100, rangeEnd: 199, color: 'blue' },
-                        { id: 'membership-priority', name: 'Membership Priority', priority: 'priority', rangeStart: 201, rangeEnd: 299, color: 'red' },
-                        { id: 'medical', name: 'Medical', priority: 'regular', rangeStart: 301, rangeEnd: 399, color: 'blue' },
-                        { id: 'membership-regular', name: 'Membership Regular', priority: 'regular', rangeStart: 401, rangeEnd: 499, color: 'blue' },
-                        { id: 'corporate', name: 'Corporate', priority: 'regular', rangeStart: 501, rangeEnd: 599, color: 'blue' },
-                        { id: 'corporate-priority', name: 'Corporate Priority', priority: 'priority', rangeStart: 601, rangeEnd: 699, color: 'red' },
-                        { id: 'pension-regular', name: 'Pension Care (RDF) Regular', priority: 'regular', rangeStart: 701, rangeEnd: 799, color: 'blue' },
-                        { id: 'pension-priority', name: 'Pension Care (RDF) Priority', priority: 'priority', rangeStart: 801, rangeEnd: 899, color: 'red' },
-                        { id: 'ecenter-regular', name: 'E-Center Regular', priority: 'regular', rangeStart: 901, rangeEnd: 999, color: 'blue' },
-                        { id: 'ecenter-priority', name: 'E-Center Priority', priority: 'priority', rangeStart: 1001, rangeEnd: 1099, color: 'red' },
-                        { id: 'mysss', name: 'My.SSS Appointment', priority: 'regular', rangeStart: 1101, rangeEnd: 1199, color: 'blue' },
-                        { id: 'welcome-back', name: 'Welcome Back Ka-SSS', priority: 'regular', rangeStart: 1201, rangeEnd: 1299, color: 'blue' },
-                    ];
-                    let categoryCounters = @json($categoryCounters ?? []);
+        <div id="printArea" style="display:none;width:80mm;height:100mm;background:#fff;text-align:center;font-family:Arial,sans-serif;flex-direction:column;justify-content:center;align-items:center;"></div>
 
-                    let tickets = @json((isset($branch) && $branch) ? Session::get('tickets:'.$branch, []) : Session::get('tickets', []));
+        <script>
+            let CATEGORIES = @json($categories ?? []);
+            let categoryCounters = @json($categoryCounters ?? []);
+            let tickets = @json($tickets ?? []);
             let latestTicket = null;
+
+            function resolveBranchSlug() {
+                try {
+                    const qp = new URLSearchParams(window.location.search);
+                    if (qp.has('branch')) return qp.get('branch');
+                    const m = (window.location.pathname || '').match(/\/branch\/([^\/]+)/);
+                    if (m && m[1]) return decodeURIComponent(m[1]);
+                    const saved = localStorage.getItem('lastBranchSlug');
+                    return saved || '';
+                } catch (e) { return ''; }
+            }
+            const BRANCH = resolveBranchSlug();
+            const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
+            const CHANNEL_NAME = lsKey('queue-events');
+            if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
 
             const selectedPriority = document.getElementById('selectedPriorityCategory');
             const selectedRegular = document.getElementById('selectedRegularCategory');
@@ -186,17 +161,14 @@
                             const data = await res.json();
                             CATEGORIES = data.categories || [];
                         }
-                        if (!Array.isArray(CATEGORIES) || CATEGORIES.length === 0) {
-                            CATEGORIES = DEFAULT_CATEGORIES.slice();
-                        }
                     }
                 } catch (e) {}
             }
 
             async function populateCategorySelects() {
                 await ensureCategories();
-                selectedPriority.innerHTML = '<option value="">Select Transaction Type</option>';
-                selectedRegular.innerHTML = '<option value="">Select Transaction Type</option>';
+                while (selectedPriority.options.length > 1) selectedPriority.remove(1);
+                while (selectedRegular.options.length > 1) selectedRegular.remove(1);
                 CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedPriority.appendChild(opt);
@@ -205,49 +177,38 @@
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedRegular.appendChild(opt);
                 });
-                if (selectedPriority.options.length <= 1 && selectedRegular.options.length <= 1) {
-                    CATEGORIES = DEFAULT_CATEGORIES.slice();
-                    CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
-                        const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
-                        selectedPriority.appendChild(opt);
-                    });
-                    CATEGORIES.filter(c => c.priority === 'regular').forEach(c => {
-                        const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
-                        selectedRegular.appendChild(opt);
-                    });
-                }
             }
 
-                    function getNextForCategory(catId) {
-                        return categoryCounters[catId] ?? null;
-                    }
+            function getNextForCategory(catId) {
+                return categoryCounters[catId] ?? null;
+            }
 
-                    selectedPriority.addEventListener('change', () => {
-                        if (selectedPriority.value) {
-                            priorityNextNumber.classList.remove('hidden');
-                            const next = getNextForCategory(selectedPriority.value);
-                            priorityNextNumber.querySelector('p.text-red-600').textContent = next !== null ? next : '-';
-                            generatePriorityBtn.disabled = false;
-                        } else {
-                            priorityNextNumber.classList.add('hidden');
-                            generatePriorityBtn.disabled = true;
-                        }
-                    });
+            selectedPriority.addEventListener('change', () => {
+                if (selectedPriority.value) {
+                    priorityNextNumber.classList.remove('hidden');
+                    const next = getNextForCategory(selectedPriority.value);
+                    priorityNextNumber.querySelector('p.text-red-600').textContent = next !== null ? next : '-';
+                    generatePriorityBtn.disabled = false;
+                } else {
+                    priorityNextNumber.classList.add('hidden');
+                    generatePriorityBtn.disabled = true;
+                }
+            });
 
-                    selectedRegular.addEventListener('change', () => {
-                        if (selectedRegular.value) {
-                            regularNextNumber.classList.remove('hidden');
-                            const next = getNextForCategory(selectedRegular.value);
-                            regularNextNumber.querySelector('p.text-blue-600').textContent = next !== null ? next : '-';
-                            generateRegularBtn.disabled = false;
-                        } else {
-                            regularNextNumber.classList.add('hidden');
-                            generateRegularBtn.disabled = true;
-                        }
-                    });
+            selectedRegular.addEventListener('change', () => {
+                if (selectedRegular.value) {
+                    regularNextNumber.classList.remove('hidden');
+                    const next = getNextForCategory(selectedRegular.value);
+                    regularNextNumber.querySelector('p.text-blue-600').textContent = next !== null ? next : '-';
+                    generateRegularBtn.disabled = false;
+                } else {
+                    regularNextNumber.classList.add('hidden');
+                    generateRegularBtn.disabled = true;
+                }
+            });
 
             async function generateTicket(categoryObj, priority) {
-                const payload = { mode: 'screen', priority, transaction: categoryObj.id, branch: BRANCH };
+                const payload = { mode: 'printer', priority, transaction: categoryObj.id, branch: BRANCH };
                 try {
                     const url = BRANCH ? ('{{ route('ticket.generate') }}' + '?branch=' + encodeURIComponent(BRANCH)) : '{{ route('ticket.generate') }}';
                     const res = await fetch(url, {
@@ -264,45 +225,36 @@
                         const text = await res.text();
                         throw new Error('Server returned ' + res.status + ': ' + text.substring(0,200));
                     }
-
-                    let data = null;
-                    try {
-                        data = await res.json();
-                    } catch (parseErr) {
-                        // fallback: refresh session tickets and show a simple confirmation
-                        try {
-                            const dbgUrl = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
-                            const dbg = await fetch(dbgUrl);
-                            if (dbg.ok) {
-                                const dbgData = await dbg.json();
-                                tickets = dbgData.tickets || tickets;
-                                categoryCounters = dbgData.categoryCounters || categoryCounters;
-                                renderQueue();
-                                showTicketModal(tickets.length ? tickets[tickets.length-1] : null);
-                                // notify other tabs/boards to refresh immediately
-                                try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
-                                try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
-                                alert('Ticket was queued on the server; the UI has been refreshed.');
-                                return;
-                            }
-                        } catch (dbgErr) {
-                            console.warn('Debug refresh failed', dbgErr);
-                        }
-                        throw new Error('Server returned a non-JSON response');
-                    }
-
+                    let data = await res.json();
                     latestTicket = data.ticket;
                     tickets = data.tickets;
                     categoryCounters = data.categoryCounters || categoryCounters;
                     renderQueue();
-                    showTicketModal(latestTicket);
-                    // notify other tabs/boards to refresh immediately
-                    try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
-                    try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
+                    printTicketElement(latestTicket);
                 } catch (err) {
                     console.error(err);
                     alert('Failed to generate ticket: ' + (err.message || err));
                 }
+            }
+
+            // Print ticket number directly from the page
+            function printTicketElement(ticket) {
+                if (!ticket) return;
+                const printArea = document.getElementById('printArea');
+                const logoUrl = '/images/sss.svg';
+                const now = new Date(ticket.timestamp);
+                printArea.innerHTML = `
+                    <div style=\"margin-bottom:12px;\"><img src=\"${logoUrl}\" alt=\"Logo\" style=\"height:40px;\"></div>
+                    <div style=\"font-size:1.1rem;margin-bottom:8px;\">Your ticket number is:</div>
+                    <div style=\"font-size:2.8rem;font-weight:bold;margin-bottom:8px;\">${ticket.number}</div>
+                    <div style=\"font-size:1rem;margin-bottom:8px;\">${now.toLocaleDateString()} ${now.toLocaleTimeString()}</div>
+                    <div style=\"font-size:1rem;margin-top:12px;\">Please wait for your number to be called. Thank you!</div>
+                `;
+                printArea.style.display = 'flex';
+                setTimeout(() => {
+                    window.print();
+                    printArea.style.display = 'none';
+                }, 200);
             }
 
             generatePriorityBtn.addEventListener('click', () => {
@@ -352,25 +304,13 @@
                 document.getElementById('totalServed').textContent = tickets.filter(t => t.status === 'completed').length;
             }
 
-            function showTicketModal(ticket) {
-                if (!ticket) return;
-                document.getElementById('modalNumber').textContent = ticket.number;
-                document.getElementById('modalCategory').textContent = ticket.category;
-                document.getElementById('ticketModal').classList.remove('hidden');
-            }
-
-            document.getElementById('closeModal').addEventListener('click', () => {
-                document.getElementById('ticketModal').classList.add('hidden');
-            });
-
             // init
             populateCategorySelects();
             renderQueue();
 
-            // Keep screen-only issuer live by polling server state
             async function syncFromServer() {
                 try {
-                    const url = BRANCH ? ('/debug/queue?branch=' + encodeURIComponent(BRANCH)) : '/debug/queue';
+                    const url = BRANCH ? `/api/tickets?branch=${encodeURIComponent(BRANCH)}` : '/api/tickets';
                     const res = await fetch(url, { cache: 'no-store' });
                     if (!res.ok) return;
                     const data = await res.json();
@@ -378,7 +318,6 @@
                     const currentSig = JSON.stringify(tickets);
                     const nextSig = JSON.stringify(incoming);
                     tickets = incoming;
-                    if (data.categoryCounters) categoryCounters = data.categoryCounters;
                     if (currentSig !== nextSig) {
                         renderQueue();
                     }
@@ -386,9 +325,6 @@
             }
             setInterval(syncFromServer, 2000);
 
-            // Instant refresh on local events: BroadcastChannel + storage
-            const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
-            const CHANNEL_NAME = lsKey('queue-events');
             try {
                 const ch = new BroadcastChannel(CHANNEL_NAME);
                 ch.onmessage = (ev) => {

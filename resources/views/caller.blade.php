@@ -127,17 +127,8 @@
             <script>
             async function fetchQueueStats() {
                 try {
-                const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
-                const res = await fetch(url);
-                    if (!res.ok) return;
-                    const data = await res.json();
-                    const tickets = data.tickets || [];
-                    const priorityWaiting = tickets.filter(t => t.status === 'waiting' && t.priority === 'priority').length;
-                    const regularWaiting = tickets.filter(t => t.status === 'waiting' && t.priority !== 'priority').length;
-                    const totalServed = tickets.filter(t => t.status === 'completed').length;
-                    document.getElementById('priorityWaiting').textContent = priorityWaiting;
-                    document.getElementById('regularWaiting').textContent = regularWaiting;
-                    document.getElementById('totalServed').textContent = totalServed;
+                // TODO: Replace with production endpoint for queue stats
+                // Example: fetch('/api/queue-stats')
                 } catch (e) {}
             }
             setInterval(fetchQueueStats, 2000);
@@ -148,9 +139,13 @@
 
         <!-- Right Panel - Queue List -->
         <div class="lg:col-span-2">
-          <div class="bg-white rounded-xl shadow-lg p-6">
-            <h2 class="text-gray-900 mb-6">Queue Status</h2>
-            <div class="space-y-3 max-h-[600px] overflow-y-auto" id="queueList">
+          <div class="bg-white rounded-2xl shadow-xl p-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <svg class="w-7 h-7 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6a2 2 0 012-2h8M9 17a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10h10a2 2 0 002-2V9a2 2 0 00-2-2h-8"></path></svg>
+              Queue Status
+            </h2>
+            <div id="queueList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 max-h-[600px] overflow-y-auto">
+              <!-- Tickets will be rendered here by JS -->
               <div class="text-center py-12 text-gray-400">No tickets in queue yet</div>
             </div>
           </div>
@@ -310,36 +305,33 @@
           </div>
         </div>
       </div>
+
     </div>
 
     <script>
-      // Resolve active branch from /branch/{slug}/caller or ?branch=... with localStorage fallback
-      function resolveBranchSlug() {
-        try {
-          const qp = new URLSearchParams(window.location.search);
-          if (qp.has('branch')) return qp.get('branch');
-          const m = (window.location.pathname || '').match(/\/branch\/([^\/]+)/);
-          if (m && m[1]) return decodeURIComponent(m[1]);
-          const saved = localStorage.getItem('lastBranchSlug');
-          return saved || null;
-        } catch (e) { return null; }
-      }
-      const BRANCH = resolveBranchSlug();
-      // Persist branch so issuer pages opened without /branch use the same channel
-      if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
+      // Resolve active branch from /branch/{slug}/caller or ?branch=...
+      const BRANCH = (() => {
+        const qs = new URLSearchParams(location.search).get('branch');
+        if (qs) return qs;
+        const m = location.pathname.match(/\/branch\/([^\/]+)\//);
+        return m ? m[1] : null;
+      })();
       // Branch-scoped storage/channel helpers
       const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
       const CHANNEL_NAME = lsKey('queue-events');
-      // initial data from session (tickets may be present, branch-scoped)
-    const initialTickets = @json((isset($branch) && $branch) ? Session::get('tickets:'.$branch, []) : Session::get('tickets', []));
+      // initial data from DB for immediate display (tickets from server)
+       const initialTickets = @json($tickets ?? []);
   const CATEGORIES = @json($categories ?? []);
-  const ALL_COUNTERS = @json($counters ?? []);
-  // server-calculated next numbers per category (id => nextNumber); populated via /debug/queue
+  const ALL_COUNTERS = (() => {
+    const counters = @json($counters ?? []);
+    return counters.includes('Medical') ? counters : [...counters, 'Medical'];
+  })();
+  // server-calculated next numbers per category (id => nextNumber)
   const CATEGORY_COUNTERS = {};
         // Persist chosen branch for issuer pages to read when opened without /branch
         if (BRANCH) { try { localStorage.setItem('lastBranchSlug', BRANCH); } catch (e) {} }
 
-    let tickets = initialTickets; // array of ticket objects
+    let tickets = initialTickets;
   let selectedCategories = []; // single selection stored as [id] or []
   let lastCalledTicket = null; // temporary holder for immediate UI update after callNext
   let lastCallAgainTs = 0; // cooldown tracker for Call Again
@@ -393,24 +385,47 @@
           return;
         }
         queueList.innerHTML = '';
-        const list = tickets.slice().reverse();
-        list.forEach(ticket => {
-          const div = document.createElement('div');
-          div.className = `p-4 rounded-lg border-2 transition-all ${ticket.status === 'serving' ? 'bg-green-50 border-green-500' : ticket.status === 'waiting' ? (ticket.priority === 'priority' ? 'bg-red-50 border-red-300' : 'bg-blue-50 border-blue-300') : 'bg-gray-50 border-gray-200 opacity-50'}`;
-          div.innerHTML = `
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div>
-                  <p class="text-gray-900">${ticket.number}</p>
-                  <p class="text-gray-600">${ticket.category}</p>
-                  <p class="text-gray-500">${new Date(ticket.timestamp).toLocaleTimeString()}</p>
+        // Group tickets by status for visual clarity
+        const statusOrder = ['waiting', 'serving', 'completed'];
+        const grouped = { waiting: [], serving: [], completed: [] };
+        tickets.forEach(t => {
+          if (grouped[t.status]) grouped[t.status].push(t);
+        });
+        statusOrder.forEach(status => {
+          if (grouped[status].length > 0) {
+            const header = document.createElement('div');
+            header.className = 'col-span-full mt-2 mb-1';
+            header.innerHTML = `<div class="text-lg font-semibold text-${status === 'waiting' ? 'blue' : status === 'serving' ? 'green' : 'gray'}-700 flex items-center gap-2">${status.charAt(0).toUpperCase() + status.slice(1)}
+              <span class="inline-block w-2 h-2 rounded-full ${status === 'waiting' ? 'bg-blue-400' : status === 'serving' ? 'bg-green-400' : 'bg-gray-400'}"></span>
+            </div>`;
+            queueList.appendChild(header);
+          }
+          grouped[status].slice().reverse().forEach(ticket => {
+            const div = document.createElement('div');
+            div.className = `p-5 rounded-xl border-2 shadow-sm flex flex-col gap-2 transition-all ${
+              status === 'serving' ? 'bg-green-50 border-green-500' :
+              status === 'waiting' ? (ticket.priority === 'priority' ? 'bg-red-50 border-red-300' : 'bg-blue-50 border-blue-300') :
+              'bg-gray-50 border-gray-200 opacity-60'
+            }`;
+            div.innerHTML = `
+              <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-1">
+                  <span class="text-2xl font-bold text-gray-900">${ticket.number}</span>
+                  <span class="text-sm text-gray-600">${ticket.category}</span>
+                  <span class="text-xs text-gray-400">${new Date(ticket.timestamp).toLocaleTimeString()}</span>
+                </div>
+                <div class="flex flex-col items-end gap-2">
+                  <span class="px-3 py-1 rounded-full text-xs font-semibold ${
+                    status === 'serving' ? 'bg-green-500 text-white' :
+                    status === 'waiting' ? (ticket.priority === 'priority' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white') :
+                    'bg-gray-400 text-white'
+                  }">${status.charAt(0).toUpperCase() + status.slice(1)}</span>
+                  <span class="text-xs text-gray-500">${ticket.counter ? 'Counter: ' + ticket.counter : ''}</span>
                 </div>
               </div>
-              <div>
-                <span class="px-3 py-1 rounded-full text-white ${ticket.status === 'serving' ? 'bg-green-500' : ticket.status === 'waiting' ? (ticket.priority === 'priority' ? 'bg-red-500' : 'bg-blue-500') : 'bg-gray-400'}">${ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}</span>
-              </div>
-            </div>`;
-          queueList.appendChild(div);
+            `;
+            queueList.appendChild(div);
+          });
         });
       }
 
@@ -489,7 +504,7 @@
         // Keep Caller view live by polling server state
         async function syncFromServer() {
           try {
-            const url = BRANCH ? `/debug/queue?branch=${encodeURIComponent(BRANCH)}` : '/debug/queue';
+            const url = BRANCH ? `/api/tickets?branch=${encodeURIComponent(BRANCH)}` : '/api/tickets';
             const res = await fetch(url, { cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
@@ -498,10 +513,6 @@
             const currentSig = JSON.stringify(tickets);
             const nextSig = JSON.stringify(incoming);
             tickets = incoming;
-            if (data.categoryCounters) {
-              // update preview counters used in currentlyServing preview
-              Object.assign(CATEGORY_COUNTERS, data.categoryCounters);
-            }
             if (currentSig !== nextSig) {
               refreshAll();
             }
@@ -565,7 +576,7 @@
             // Broadcast the call so Display Board announces automatically (single shared ts)
             try {
               const sharedTs = Date.now();
-              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
+              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
               try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
               try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
               try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -637,7 +648,7 @@
           try {
             const counter = currentCounterSelect ? currentCounterSelect.value : (currentCounterLabelEl ? currentCounterLabelEl.textContent : '-');
             const sharedTs = Date.now();
-            const payload = { type: 'ring', number: msg, category: 'Offline', counter, ts: sharedTs, branch: BRANCH };
+            const payload = { type: 'ring', number: msg, category: 'Offline', counter, ts: sharedTs };
             try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
             try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
             try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -683,7 +694,7 @@
               // Broadcast the call so Display Board announces automatically (single shared ts)
               try {
                 const sharedTs = Date.now();
-                const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
+                const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
                 try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
                 try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
                 try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -905,9 +916,8 @@
 
       async function showReports() {
         try {
-          const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
-          const res = await fetch(url, { cache: 'no-store' });
-          if (!res.ok) { renderReportsTables(tickets); } else { const data = await res.json(); renderReportsTables(data.tickets || tickets); }
+          // TODO: Replace with production endpoint for reports
+          renderReportsTables(tickets);
         } catch (e) { renderReportsTables(tickets); }
         reportsModal.classList.remove('hidden');
         // default tab
@@ -938,12 +948,8 @@
         try {
           // Refresh data quickly to ensure latest counts
           try {
-            const url = BRANCH ? (`/debug/queue?branch=${encodeURIComponent(BRANCH)}`) : '/debug/queue';
-            const res = await fetch(url, { cache: 'no-store' });
-            if (res.ok) {
-              const data = await res.json();
-              renderReportsTables(data.tickets || tickets);
-            }
+            // TODO: Replace with production endpoint for reports
+            renderReportsTables(tickets);
           } catch (e) {}
           const map = window.__reportsHourMap || {};
           const rows = [['Hour', 'Total Transactions']];
@@ -1133,4 +1139,3 @@
 <!DOCTYPE html>
 <html>
 <head>
-   
