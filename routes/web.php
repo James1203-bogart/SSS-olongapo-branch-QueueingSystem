@@ -17,7 +17,7 @@ use App\Http\Controllers\QueueController;
 use App\Http\Controllers\CallerController;
 
 // Main entry
-Route::get('/', function () { return redirect()->route('queueing.info'); });
+Route::get('/', function () { return view('First'); });
 
 // Queueing Info (branch selection + per-branch links)
 Route::get('/queueing-info', function () { return view('queueing_info'); })->name('queueing.info');
