@@ -133,13 +133,18 @@ Route::get('/counters/status', function () {
         if (isset($byCounter[$key])) { $statuses[$name] = $byCounter[$key]; }
     }
 
-    // Fallback: use last ring payload cached per-branch to fill its counter
+    // Fallback: use last ring payload cached per-branch to fill its counter (skip offline)
     try {
         $payload = Cache::get($branch ? ('queue:last_ring:'.$branch) : 'queue:last_ring');
         if ($payload && !empty($payload['counter'])) {
+            $num = (string)($payload['number'] ?? '');
+            $cat = strtolower((string)($payload['category'] ?? ''));
+            $isOffline = ($cat === 'offline') || (stripos($num, 'offline') !== false);
+            if (!$isOffline) {
             $k = $norm($payload['counter']);
             foreach ($COUNTERS as $name) {
                 if ($norm($name) === $k) { $statuses[$name] = [ 'number' => ($payload['number'] ?? '---'), 'category' => ($payload['category'] ?? '') ]; break; }
+            }
             }
         }
     } catch (\Throwable $e) { /* ignore */ }

@@ -39,13 +39,6 @@
 				</div>
 				<div class="flex flex-col gap-8 w-72 justify-center">
 					<div class="bg-gray-800 rounded-xl p-8 text-center flex flex-col items-center">
-						<div class="flex items-center gap-2 mb-2">
-							<svg class="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M13 7a3 3 0 11-6 0 3 3 0 016 0zM2 14s1-4 8-4 8 4 8 4v1H2v-1z"/></svg>
-							<span class="text-gray-200 text-lg">Waiting</span>
-						</div>
-						<span id="displayWaitingCount" class="text-yellow-500 text-6xl">0</span>
-					</div>
-					<div class="bg-gray-800 rounded-xl p-8 text-center flex flex-col items-center">
 						<span class="text-gray-200 text-lg mb-2">Time</span>
 						<span id="displayTime" class="text-yellow-500 text-5xl">--:--:--<br>AM</span>
 					</div>
@@ -144,8 +137,7 @@
 					// TODO: Replace with production endpoint for queue data
 					const tickets = [];
 
-					// Waiting
-					document.getElementById('displayWaitingCount').textContent = tickets.filter(t => t.status === 'waiting').length;
+					// Waiting card removed
 
 					// Now Serving (optional from queue) — disabled to avoid flicker; ring/local storage drives NOW SERVING
 					if (USE_QUEUE_FOR_NOW_SERVING) {
@@ -189,7 +181,8 @@
 							// Merge in latest ring payload on the client to ensure the called counter shows immediately
 							try {
 								const r = window.latestRing;
-								if (r && r.counter) {
+								const isOffline = r && (String(r.category||'').toLowerCase()==='offline' || /offline/i.test(String(r.number||'')));
+								if (r && r.counter && !isOffline) {
 									statuses[norm(r.counter)] = { number: r.number, category: r.category };
 								}
 							} catch(e) {}
@@ -214,7 +207,8 @@
 							COUNTERS.forEach(n => { fallbackStatuses[norm(n)] = null; });
 							try {
 								const r = window.latestRing;
-								if (r && r.counter) { fallbackStatuses[norm(r.counter)] = { number: r.number, category: r.category }; }
+								const isOffline = r && (String(r.category||'').toLowerCase()==='offline' || /offline/i.test(String(r.number||'')));
+								if (r && r.counter && !isOffline) { fallbackStatuses[norm(r.counter)] = { number: r.number, category: r.category }; }
 							} catch(e) {}
 							document.getElementById('displayAllCounters').innerHTML = COUNTERS.map(name => {
 								const t = fallbackStatuses[norm(name)];
