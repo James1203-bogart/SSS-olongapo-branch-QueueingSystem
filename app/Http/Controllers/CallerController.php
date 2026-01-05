@@ -19,9 +19,9 @@ class CallerController extends Controller
                 ->where('status', 'serving')
                 ->where('called_at', '<', now()->subHour())
                 ->update(['status' => 'completed', 'completed_at' => now()]);
-                // Reset all tickets at/after 9pm
+                // Reset all tickets at/after 6pm (fallback in case scheduler hasn't run yet)
                 $now = now();
-                if ($now->hour >= 21) {
+                if ($now->hour >= 18) {
                     // Mark all tickets as completed
                     Ticket::where('branch', $branch)
                         ->whereIn('status', ['waiting', 'serving'])
