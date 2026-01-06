@@ -2,24 +2,22 @@
  * Client-side printing via QZ Tray (macOS & Windows).
  * Requires QZ Tray installed: https://qz.io/download/
  * In production, supply your own certificate and signature.
- * Note: Expects the global `qz` from the QZ Tray CDN script.
  */
 
-const qz = (typeof window !== 'undefined' ? window.qz : undefined);
+import qz from 'qz-tray';
 
 // Provide certificate and signature promises (placeholders).
-qz && qz.security.setCertificatePromise(function(resolve, reject) {
+qz.security.setCertificatePromise(function(resolve, reject) {
   // TODO: Replace with your signed certificate (PEM string)
   resolve("-----BEGIN CERTIFICATE-----\nMIIB...REPLACE_ME...\n-----END CERTIFICATE-----\n");
 });
-qz && qz.security.setSignaturePromise(function(toSign) {
+qz.security.setSignaturePromise(function(toSign) {
   // TODO: Replace with a call to your server to sign 'toSign' using your private key.
   // For demo purposes, we return null which works only if QZ Tray is in insecure mode.
   return Promise.resolve(null);
 });
 
 export async function initQZ() {
-  if (!qz) throw new Error('QZ Tray library not loaded');
   if (!qz.websocket.isActive()) {
     await qz.websocket.connect();
   }

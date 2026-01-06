@@ -6,7 +6,9 @@
         "build": "vite build",
         "dev": "vite"
     },
-    "dependencies": {},
+    "dependencies": {
+        "qz-tray": "^2.3.5"
+    },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
         "autoprefixer": "^10.4.22",
