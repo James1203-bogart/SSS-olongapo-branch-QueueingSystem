@@ -5,6 +5,8 @@
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Number Issuer (Thermal)</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qz-tray/2.1.0/qz-tray.js"></script>
+        @vite('resources/js/print-qz.js')
         <link rel="stylesheet" href="{{ asset('css/with_printer.css') }}">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <style>
@@ -238,7 +240,33 @@
             }
 
             // Print ticket number directly from the page
-            function printTicketElement(ticket) {
+            async function serverPrint(ticket) {
+                try {
+                    const res = await fetch('{{ route('print.escpos') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        },
+                        body: JSON.stringify({
+                            number: ticket.number,
+                            transaction: ticket.category,
+                            priority: ticket.priority,
+                            generated_at: new Date(ticket.timestamp).toISOString().slice(0,19).replace('T',' ')
+                        })
+                    });
+                    const data = await res.json().catch(()=>({}));
+                    if (!res.ok || data.ok === false) throw new Error((data.error || ('HTTP '+res.status)));
+                    return true;
+                } catch (e) {
+                    console.warn('Server print failed:', e);
+                    return false;
+                }
+            }
+
+            async function printTicketElement(ticket) {
                 if (!ticket) return;
                 const printArea = document.getElementById('printArea');
                 const logoUrl = '/images/sss.svg';
@@ -251,7 +279,31 @@
                     <div style=\"font-size:1rem;margin-top:12px;\">Please wait for your number to be called. Thank you!</div>
                 `;
                 printArea.style.display = 'flex';
-                setTimeout(() => {
+                setTimeout(async () => {
+                    // Try client-side QZ Tray first
+                    try {
+                        if (window.QZPrint) {
+                            await window.QZPrint.initQZ();
+                            const printers = await window.QZPrint.qz.printers.list();
+                            const defaultPrinter = printers?.[0] || null;
+                            if (defaultPrinter) {
+                                await window.QZPrint.printTicketWithQZ(defaultPrinter, {
+                                    number: ticket.number,
+                                    transaction: ticket.category,
+                                    priority: ticket.priority,
+                                    generated_at: now.toLocaleString()
+                                });
+                                printArea.style.display = 'none';
+                                return;
+                            }
+                        }
+                    } catch (e) { console.warn('QZ printing failed', e); }
+
+                    // Try server-side ESC/POS
+                    const ok = await serverPrint(ticket);
+                    if (ok) { printArea.style.display = 'none'; return; }
+
+                    // Fallback: browser print (system queue)
                     window.print();
                     printArea.style.display = 'none';
                 }, 200);
