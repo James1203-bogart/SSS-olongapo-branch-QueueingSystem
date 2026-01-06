@@ -15,6 +15,7 @@ Route::get('/', function () {
 
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\CallerController;
+use App\Http\Controllers\PrintController;
 
 // Main entry
 Route::get('/', function () { return view('First'); });
@@ -46,6 +47,9 @@ Route::get('/screen', [QueueController::class, 'screen'])->name('screen');
 Route::get('/categories/{mode}/{priority}', [QueueController::class, 'categories'])->name('categories');
 Route::post('/ticket', [QueueController::class, 'generateTicket'])->name('ticket.generate');
 Route::get('/ticket', [QueueController::class, 'showTicket'])->name('ticket.show');
+
+// Thermal print via ESC/POS (server-side; works with network printers or CUPS/Windows queues)
+Route::post('/print/escpos', [PrintController::class, 'printEscpos'])->name('print.escpos');
 
 // Categories - add new
 Route::post('/categories/add', [QueueController::class, 'addCategory'])->name('categories.add');
