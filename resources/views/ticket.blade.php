@@ -6,6 +6,7 @@
     <title>Ticket</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('css/ticket.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qz-tray/2.1.0/qz-tray.js"></script>
     @vite('resources/js/print-qz.js')
 </head>
 <body class="p-4">
