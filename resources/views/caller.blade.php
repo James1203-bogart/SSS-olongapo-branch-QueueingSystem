@@ -53,6 +53,10 @@
                 <option value="{{ $c }}" @if(isset($assigned) && $assigned === $c) selected @endif>{{ $c }}</option>
               @endforeach
             </select>
+            <div class="mt-4 flex items-center gap-3">
+              <button id="addCounterBtn" class="px-4 py-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300">Add Counter</button>
+              <button id="removeCounterBtn" class="px-4 py-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 border border-red-300">Remove Counter</button>
+            </div>
           </div>
           <!-- Category Filter (single selection) -->
           <div class="bg-white rounded-xl shadow-lg p-6">
@@ -348,6 +352,102 @@
   const currentCounterSelect = document.getElementById('currentCounter');
   const currentCounterLabelEl = document.getElementById('currentCounterLabel');
 
+      // --- Dynamic Counter Add/Remove helpers ---
+      function getNumericCounterIndex(name) {
+        const m = String(name || '').match(/^Counter\s+(\d+)$/i);
+        return m ? parseInt(m[1], 10) : null;
+      }
+
+      function getCurrentCounterNames() {
+        const names = [];
+        if (!currentCounterSelect) return names;
+        for (let i = 0; i < currentCounterSelect.options.length; i++) {
+          names.push(currentCounterSelect.options[i].value);
+        }
+        return names;
+      }
+
+      function persistAddedCounters(names) {
+        try { localStorage.setItem(lsKey('added_counters'), JSON.stringify(names)); } catch(e) {}
+      }
+
+      function loadAddedCounters() {
+        let added = [];
+        try { added = JSON.parse(localStorage.getItem(lsKey('added_counters')) || '[]'); } catch(e) { added = []; }
+        if (!Array.isArray(added)) added = [];
+        if (currentCounterSelect) {
+          const existing = new Set(getCurrentCounterNames());
+          added.forEach(name => {
+            if (!existing.has(name)) {
+              const opt = document.createElement('option');
+              opt.value = name; opt.textContent = name;
+              currentCounterSelect.appendChild(opt);
+            }
+          });
+        }
+        const existingAll = new Set(ALL_COUNTERS);
+        added.forEach(name => { if (!existingAll.has(name)) ALL_COUNTERS.push(name); });
+      }
+
+      function addCounter() {
+        const names = getCurrentCounterNames();
+        const nums = names.map(getNumericCounterIndex).filter(n => typeof n === 'number');
+        const next = (nums.length ? Math.max(...nums) : 0) + 1;
+        const name = `Counter ${next}`;
+        if (currentCounterSelect) {
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          currentCounterSelect.appendChild(opt);
+          currentCounterSelect.value = name;
+          if (currentCounterLabelEl) currentCounterLabelEl.textContent = name;
+        }
+        if (!ALL_COUNTERS.includes(name)) ALL_COUNTERS.push(name);
+        const added = names.filter(n => getNumericCounterIndex(n) !== null);
+        added.push(name);
+        persistAddedCounters(added);
+        renderDisplay();
+      }
+
+      function removeCounter() {
+        const names = getCurrentCounterNames();
+        const numeric = names.filter(n => getNumericCounterIndex(n) !== null);
+        if (numeric.length <= 1) {
+          alert('At least one counter must remain');
+          return;
+        }
+        const nums = numeric.map(getNumericCounterIndex);
+        const maxNum = Math.max(...nums);
+        const target = `Counter ${maxNum}`;
+        if (currentCounterSelect) {
+          for (let i = 0; i < currentCounterSelect.options.length; i++) {
+            if (currentCounterSelect.options[i].value === target) {
+              currentCounterSelect.remove(i);
+              break;
+            }
+          }
+          if (currentCounterSelect.value === target) {
+            const remNumeric = getCurrentCounterNames().filter(n => getNumericCounterIndex(n) !== null);
+            const remNums = remNumeric.map(getNumericCounterIndex);
+            const newMax = Math.max(...remNums);
+            const newSel = `Counter ${newMax}`;
+            currentCounterSelect.value = newSel;
+            if (currentCounterLabelEl) currentCounterLabelEl.textContent = newSel;
+          }
+        }
+        const idx = ALL_COUNTERS.indexOf(target);
+        if (idx >= 0) ALL_COUNTERS.splice(idx, 1);
+        const remainingNumeric = getCurrentCounterNames().filter(n => getNumericCounterIndex(n) !== null);
+        persistAddedCounters(remainingNumeric);
+        renderDisplay();
+      }
+
+      (function bindCounterButtons(){
+        const addBtn = document.getElementById('addCounterBtn');
+        const removeBtn = document.getElementById('removeCounterBtn');
+        if (addBtn) addBtn.addEventListener('click', addCounter);
+        if (removeBtn) removeBtn.addEventListener('click', removeCounter);
+      })();
+
       function renderCategories() {
         if (!categorySelect) return;
         categorySelect.innerHTML = '<option value="">Select one category</option>';
@@ -491,6 +591,8 @@
 
       // initialize
       renderCategories();
+      // restore any previously added counters for this branch
+      loadAddedCounters();
       // single-select category dropdown handler
       if (categorySelect) {
         categorySelect.addEventListener('change', () => {
