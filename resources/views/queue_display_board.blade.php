@@ -7,11 +7,16 @@
 		<script src="https://cdn.tailwindcss.com"></script>
 		<link rel="stylesheet" href="{{ asset('css/caller.css') }}">
 		<style>
+<<<<<<< HEAD
+=======
+			html, body { height: 100%; width: 100%; margin: 0; }
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			@keyframes crawler-scroll {
 				0% { transform: translateX(100%); }
 				100% { transform: translateX(-100%); }
 			}
 			.crawler-animate { animation: crawler-scroll 18s linear infinite; white-space: nowrap; }
+<<<<<<< HEAD
 		</style>
 	</head>
 	<body class="bg-gray-900 min-h-screen flex items-center justify-center">
@@ -53,6 +58,56 @@
 			<!-- Crawler at bottom -->
 			<div class="absolute left-0 right-0 bottom-0 bg-black py-4 overflow-hidden rounded-b-3xl border-t border-gray-700">
 				<div id="displayCrawler" class="text-yellow-400 text-5xl font-semibold px-8 crawler-animate">Hello</div>
+=======
+			/* Blink red while calling */
+			@keyframes call-blink {
+				0%, 100% { color: #ef4444; opacity: 1; }
+				50% { color: #ef4444; opacity: 0.35; }
+			}
+			.calling-blink { color: #ef4444 !important; animation: call-blink 0.7s ease-in-out 3; }
+		</style>
+	</head>
+	<body class="bg-gray-100 h-screen w-screen overflow-hidden">
+		<div class="w-screen h-screen mx-auto p-0">
+			<div class="mb-2">
+				<h1 class="text-slate-800 text-2xl font-semibold">Queue Display Board <span id="branchLabel" class="text-slate-500 text-lg font-normal"></span></h1>
+			</div>
+
+ 
+
+			<div class="grid grid-cols-4 grid-rows-3 gap-1">
+				<!-- Left: Counters (span 3 columns, multiple rows) -->
+				<div id="displayAllCounters" class="col-span-3 row-span-3 grid grid-cols-3 gap-2"></div>
+
+				<!-- Right: Time (row 1) -->
+				<div class="bg-white rounded-2xl p-3 shadow-sm flex flex-col items-start justify-center">
+					<div class="text-xs uppercase tracking-wider font-semibold text-gray-600 mb-1">Time</div>
+					<div id="displayTime" class="text-5xl font-mono text-slate-900 leading-tight">--:--:--<br>AM</div>
+				</div>
+
+				<!-- Right: Offline Calling (row 2) -->
+				<div class="bg-white rounded-2xl p-3 shadow-sm flex flex-col">
+					<div class="text-xs uppercase tracking-wider font-semibold text-gray-600 mb-1">Offline Calling</div>
+					<div id="offlineList" class="flex-1">
+						<div class="w-full rounded-lg bg-slate-100 text-slate-600 text-center py-2">No offline calls</div>
+					</div>
+				</div>
+
+				<!-- Right: Now Serving (row 3) -->
+					<div class="bg-white rounded-2xl p-3 shadow-sm text-center flex flex-col items-center justify-center">
+					<div class="text-xs uppercase tracking-wider font-semibold text-gray-600 mb-1">Now Serving</div>
+						<div id="displayNowNumber" class="text-7xl font-bold text-slate-900 tracking-wide leading-tight">- - -</div>
+						<div id="displayNowCounter" class="mt-2 text-slate-700 text-5xl font-semibold">Counter -</div>
+						<div id="displayNowCategoryWrap" class="hidden mt-0 text-4xl text-gray-500"><span id="displayNowCategory"></span></div>
+				</div>
+			</div>
+
+			<!-- Crawler at bottom -->
+					<div class="mt-3 bg-slate-900 rounded-2xl overflow-hidden">
+						<div class="py-3 overflow-hidden">
+						<div id="displayCrawler" class="text-yellow-400 text-6xl md:text-7xl lg:text-8xl font-bold px-6 whitespace-nowrap crawler-animate">Hello</div>
+				</div>
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			</div>
 		</div>
 
@@ -77,6 +132,51 @@
 			// Branch-scoped storage/channel helpers
 			const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
 			const CHANNEL_NAME = lsKey('queue-events');
+<<<<<<< HEAD
+=======
+
+			// Voice overrides via URL/localStorage for cross-browser consistency
+			function getVoiceOverrideName() {
+				try {
+					const qp = new URLSearchParams(window.location.search);
+					const qv = qp.get('voice') || qp.get('voiceName') || '';
+					if (qv) {
+						try { localStorage.setItem(lsKey('voice_name'), qv); } catch(_) {}
+						return qv;
+					}
+					const saved = localStorage.getItem(lsKey('voice_name')) || '';
+					return saved;
+				} catch(_) { return ''; }
+			}
+			function getVoiceOverrideLang() {
+				try {
+					const qp = new URLSearchParams(window.location.search);
+					const ql = qp.get('voiceLang') || qp.get('lang') || '';
+					if (ql) { try { localStorage.setItem(lsKey('voice_lang'), ql); } catch(_) {} return ql; }
+					return localStorage.getItem(lsKey('voice_lang')) || '';
+				} catch(_) { return ''; }
+			}
+			function getRateOverride() {
+				try {
+					const qp = new URLSearchParams(window.location.search);
+					const qr = qp.get('rate');
+					if (qr) { try { localStorage.setItem(lsKey('voice_rate'), qr); } catch(_) {} return parseFloat(qr); }
+					const saved = localStorage.getItem(lsKey('voice_rate'));
+					return saved ? parseFloat(saved) : null;
+				} catch(_) { return null; }
+			}
+			function getPitchOverride() {
+				try {
+					const qp = new URLSearchParams(window.location.search);
+					const qpitch = qp.get('pitch');
+					if (qpitch) { try { localStorage.setItem(lsKey('voice_pitch'), qpitch); } catch(_) {} return parseFloat(qpitch); }
+					const saved = localStorage.getItem(lsKey('voice_pitch'));
+					return saved ? parseFloat(saved) : null;
+				} catch(_) { return null; }
+			}
+			// Offline voice: always enabled (no UI or query param needed)
+			function isSpeakOfflineEnabled(){ return true; }
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			function setCrawlerFromStorage(){
 				try {
 					const el = document.getElementById('displayCrawler');
@@ -88,8 +188,33 @@
 					el.classList.add('crawler-animate');
 				} catch(e) {}
 			}
+<<<<<<< HEAD
 			window.addEventListener('storage', (e) => { if (e.key === lsKey('crawler_text')) setCrawlerFromStorage(); });
 			window.addEventListener('DOMContentLoaded', setCrawlerFromStorage);
+=======
+			// Server-backed crawler fetch for cross-browser sync
+			let lastCrawlerFetch = 0;
+			async function fetchCrawlerFromServer(force){
+				const now = Date.now();
+				if (!force && now - lastCrawlerFetch < 12000) return;
+				lastCrawlerFetch = now;
+				try {
+					const url = BRANCH ? ('/crawler?branch=' + encodeURIComponent(BRANCH)) : '/crawler';
+					const res = await fetch(url, { cache: 'no-store' });
+					if (!res.ok) return;
+					const data = await res.json();
+					const text = (data && data.text) ? String(data.text) : 'Hello';
+					try { localStorage.setItem(lsKey('crawler_text'), text); } catch(e) {}
+					setCrawlerFromStorage();
+				} catch(e) {}
+			}
+			window.addEventListener('storage', (e) => {
+				if (e.key === lsKey('crawler_text')) setCrawlerFromStorage();
+				if (e.key === lsKey('queue_updated')) fetchCrawlerFromServer(true);
+			});
+			window.addEventListener('DOMContentLoaded', () => { setCrawlerFromStorage(); fetchCrawlerFromServer(true); });
+			setInterval(() => fetchCrawlerFromServer(false), 15000);
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			// Time
 			function updateTime() {
 				const now = new Date();
@@ -107,11 +232,20 @@
 				try {
 					const el = document.getElementById('displayAllCounters');
 					if (!el) return;
+<<<<<<< HEAD
 					const COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority'];
 					el.innerHTML = COUNTERS.map(name => `
 						<div class="bg-black rounded-xl p-8 text-center">
 							<span class="text-gray-200 text-xl">${name}</span>
 							<div class="text-white text-5xl mt-4">---</div>
+=======
+					const COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'Medical', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+					el.innerHTML = COUNTERS.map(name => `
+						<div class="bg-white rounded-2xl p-3 shadow-sm text-center" data-name="${String(name).trim().toLowerCase()}">
+							<div class="text-2xl uppercase tracking-wider font-semibold text-gray-600">${name}</div>
+							<div class="qdb-num text-8xl font-bold text-slate-900 mt-0 leading-tight">---</div>
+							<div class="qdb-cat text-3xl text-gray-500 mt-0 font-medium"></div>
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 						</div>
 					`).join('');
 				} catch(e) {}
@@ -127,6 +261,26 @@
 					// Clear old now serving data on reset
 					try { localStorage.removeItem(lsKey('last_now_serving')); } catch(e) {}
 					// No initial load from localStorage
+<<<<<<< HEAD
+=======
+					// Lock default voice to "Michael" for this branch; set human pitch and slower rate unless URL overrides are present
+					try {
+						const qp = new URLSearchParams(window.location.search);
+						const hasOverride = qp.has('voice') || qp.has('voiceName');
+						if (!hasOverride) {
+							const cur = localStorage.getItem(lsKey('voice_name')) || '';
+							if (!cur || cur.toLowerCase() !== 'michael') {
+								localStorage.setItem(lsKey('voice_name'), 'Michael');
+							}
+						}
+						if (!localStorage.getItem(lsKey('voice_pitch'))) {
+							localStorage.setItem(lsKey('voice_pitch'), '1.0'); // natural human pitch
+						}
+						if (!localStorage.getItem(lsKey('voice_rate'))) {
+							localStorage.setItem(lsKey('voice_rate'), '0.85'); // slower default rate
+						}
+					} catch(_) {}
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 				} catch(e) {}
 			});
 
@@ -139,8 +293,13 @@
 
 					// Waiting card removed
 
+<<<<<<< HEAD
 					// Now Serving (optional from queue) — disabled to avoid flicker; ring/local storage drives NOW SERVING
 					if (USE_QUEUE_FOR_NOW_SERVING) {
+=======
+					// Now Serving (optional from queue) — skip while offline to avoid flicker
+					if (USE_QUEUE_FOR_NOW_SERVING && !window.__isOfflineState) {
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 						const serving = tickets.find(t => t.status === 'serving');
 						let current = null;
 						if (serving) {
@@ -157,6 +316,7 @@
 						const num = current && current.number ? current.number : '- - -';
 						const ctr = current && current.counter ? current.counter : '-';
 						const cat = current && current.category ? current.category : '';
+<<<<<<< HEAD
 						document.getElementById('displayNowNumber').textContent = num;
 						document.getElementById('displayNowCounter').innerHTML = `<p class="text-yellow-500 text-4xl">to ${ctr}</p>`;
 						if (cat) {
@@ -168,6 +328,47 @@
 					}
 
 					// All Counters Status via dedicated endpoint (more reliable than scanning tickets)
+=======
+						// If Offline, route to Offline Calling card; otherwise update Now Serving
+						const isOfflineVisual = (String(cat || '').toLowerCase() === 'offline') || /offline/i.test(String(num || ''));
+						if (isOfflineVisual) {
+							// mark offline state so other loops won't clear the card
+							try { window.__isOfflineState = true; } catch(_) {}
+							const offlineList = document.getElementById('offlineList');
+							if (offlineList) {
+								offlineList.innerHTML = `
+									<div class="text-center">
+										<div class="text-6xl font-bold text-slate-900 tracking-wide">OFFLINE</div>
+									</div>
+								`;
+							}
+							// Do not overwrite Now Serving during offline
+						} else {
+							try { window.__isOfflineState = false; } catch(_) {}
+							document.getElementById('displayNowNumber').textContent = num;
+							// ensure larger size for Now Serving
+							try {
+								const el = document.getElementById('displayNowNumber');
+								el.classList.remove('text-9xl', 'text-8xl', 'text-7xl', 'text-6xl', 'text-5xl');
+								el.classList.add('text-9xl');
+							} catch(_) {}
+							document.getElementById('displayNowCounter').textContent = `Counter ${ctr.toString().replace(/^counter\s*/i,'')}`;
+							if (cat) {
+								document.getElementById('displayNowCategory').textContent = cat;
+								document.getElementById('displayNowCategoryWrap').classList.remove('hidden');
+							} else {
+								document.getElementById('displayNowCategoryWrap').classList.add('hidden');
+							}
+							// Clear Offline card when back to normal
+							const offlineList = document.getElementById('offlineList');
+									if (offlineList) {
+										offlineList.innerHTML = '<div class="w-full rounded-lg bg-slate-100 text-slate-600 text-center py-2">No offline calls</div>';
+							}
+						}
+					}
+
+					// All Counters Status via dedicated endpoint (update existing tiles only; do not add new sections)
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 					try {
 						const countersUrl = BRANCH ? ('/counters/status?branch=' + encodeURIComponent(BRANCH)) : '/counters/status';
 						const cRes = await fetch(countersUrl, { cache: 'no-store' });
@@ -186,6 +387,7 @@
 									statuses[norm(r.counter)] = { number: r.number, category: r.category };
 								}
 							} catch(e) {}
+<<<<<<< HEAD
 							const COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority'];
 							document.getElementById('displayAllCounters').innerHTML = COUNTERS.map(name => {
 								const t = statuses[norm(name)];
@@ -202,6 +404,23 @@
 						} else {
 							// Hard fallback: show latest ring on its counter even if status endpoint failed
 							const COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+=======
+							const container = document.getElementById('displayAllCounters');
+							if (container) {
+								const tiles = Array.from(container.querySelectorAll('[data-name]'));
+								tiles.forEach(tile => {
+									const key = tile.getAttribute('data-name');
+									const t = statuses[key];
+									const numEl = tile.querySelector('.qdb-num');
+									const catEl = tile.querySelector('.qdb-cat');
+									if (numEl) numEl.textContent = t ? (t.number || '---') : '---';
+									if (catEl) catEl.textContent = t ? (t.category || '') : '';
+								});
+							}
+						} else {
+							// Hard fallback: show latest ring on its counter even if status endpoint failed
+							const COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'Medical', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 							const norm = (s) => String(s || '').trim().toLowerCase();
 							let fallbackStatuses = {};
 							COUNTERS.forEach(n => { fallbackStatuses[norm(n)] = null; });
@@ -210,6 +429,7 @@
 								const isOffline = r && (String(r.category||'').toLowerCase()==='offline' || /offline/i.test(String(r.number||'')));
 								if (r && r.counter && !isOffline) { fallbackStatuses[norm(r.counter)] = { number: r.number, category: r.category }; }
 							} catch(e) {}
+<<<<<<< HEAD
 							document.getElementById('displayAllCounters').innerHTML = COUNTERS.map(name => {
 								const t = fallbackStatuses[norm(name)];
 								const num = t ? (t.number || '---') : '---';
@@ -221,6 +441,20 @@
 										${cat ? `<div class=\"text-gray-500 text-base mt-2 truncate\">${cat}</div>` : ''}
 									</div>`;
 							}).join('');
+=======
+							const container = document.getElementById('displayAllCounters');
+							if (container) {
+								const tiles = Array.from(container.querySelectorAll('[data-name]'));
+								tiles.forEach(tile => {
+									const key = tile.getAttribute('data-name');
+									const t = fallbackStatuses[key];
+									const numEl = tile.querySelector('.qdb-num');
+									const catEl = tile.querySelector('.qdb-cat');
+									if (numEl) numEl.textContent = t ? (t.number || '---') : '---';
+									if (catEl) catEl.textContent = t ? (t.category || '') : '';
+								});
+							}
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 						}
 					} catch (e) { /* ignore */ }
 				} catch (e) {}
@@ -246,6 +480,7 @@
 				const number = (data.number && String(data.number).trim()) ? String(data.number).trim() : (prev && prev.number ? prev.number : '- - -');
 				const counter = (data.counter && String(data.counter).trim()) ? String(data.counter).trim() : (prev && prev.counter ? prev.counter : '-');
 				const category = (data.category && String(data.category).trim()) ? String(data.category).trim() : (prev && prev.category ? prev.category : '');
+<<<<<<< HEAD
 				const nowNumberEl = document.getElementById('displayNowNumber');
 				if (nowNumberEl) nowNumberEl.textContent = number;
 				document.getElementById('displayNowCounter').innerHTML = `<p class="text-yellow-500 text-4xl">to ${counter}</p>`;
@@ -279,6 +514,89 @@
 
 				// queue automated voice announcement (skip duplicates)
 				if (!isDuplicate && window.speechSynthesis) {
+=======
+				
+				// Check if this is an offline call
+				const isOfflineVisual = (String(category || '').toLowerCase() === 'offline') || /offline/i.test(String(number || ''));
+				
+				// If offline, show in Offline Calling section instead of Now Serving
+				if (isOfflineVisual) {
+					// mark offline state
+					try { window.__isOfflineState = true; } catch(_) {}
+					const offlineList = document.getElementById('offlineList');
+					if (offlineList) {
+						offlineList.innerHTML = `
+							<div class="text-center">
+								<div class="text-6xl font-bold text-slate-900 tracking-wide">OFFLINE</div>
+							</div>
+						`;
+					}
+					// Auto-clear Offline message after a configurable delay
+					try {
+						const msRaw = localStorage.getItem(lsKey('offline_auto_clear_ms')) || '';
+						const ms = parseInt(msRaw, 10) || 30000; // default 30s
+						if (window.__offlineClearTimer) clearTimeout(window.__offlineClearTimer);
+						window.__offlineClearTimer = setTimeout(() => {
+							const ol = document.getElementById('offlineList');
+										if (ol) {
+											ol.innerHTML = '<div class="w-full rounded-lg bg-slate-100 text-slate-600 text-center py-2">No offline calls</div>';
+							}
+						}, ms);
+					} catch(e) {}
+					// Keep NOW SERVING showing the previous non-offline ticket (or default)
+					// Don't update Now Serving section for offline calls
+				} else {
+					// clear offline state
+					try { window.__isOfflineState = false; } catch(_) {}
+					// Regular call - update Now Serving section
+					const nowNumberEl = document.getElementById('displayNowNumber');
+					if (nowNumberEl) {
+						nowNumberEl.textContent = number;
+						// Enlarge and blink red briefly when calling
+						nowNumberEl.classList.remove('text-9xl', 'text-8xl', 'text-7xl', 'text-6xl', 'text-5xl', 'text-4xl', 'text-3xl');
+						nowNumberEl.classList.add('text-9xl');
+						startBlink(nowNumberEl);
+					}
+					document.getElementById('displayNowCounter').textContent = `Counter ${counter.replace(/^counter\s*/i,'')}`;
+					if (category) {
+						document.getElementById('displayNowCategory').textContent = category;
+						document.getElementById('displayNowCategoryWrap').classList.remove('hidden');
+					} else {
+						document.getElementById('displayNowCategoryWrap').classList.add('hidden');
+					}
+					// Clear offline list when serving normally
+							const offlineList = document.getElementById('offlineList');
+							if (offlineList) {
+								offlineList.innerHTML = '<div class="w-full rounded-lg bg-slate-100 text-slate-600 text-center py-3">No offline calls</div>';
+					}
+				}
+
+				// Persist last called locally for fallback display (skip Offline so Now Serving remains a regular ticket)
+				try {
+					const isOfflinePersist = (String(category || '').toLowerCase() === 'offline') || /offline/i.test(String(number || ''));
+					if (!isOfflinePersist) {
+						window.lastNowServing = { number, counter, category, ts: Date.now() };
+						localStorage.setItem(lsKey('last_now_serving'), JSON.stringify(window.lastNowServing));
+					}
+				} catch(e) {}
+
+				// immediately reflect in counters grid tile (without waiting for polling)
+				// Skip updating tiles for Offline announcements
+				if (!isOfflineVisual) {
+					try { updateCounterTile(counter, number, category); } catch (e) { /* ignore */ }
+					// Blink the specific counter tile number briefly
+					try {
+						const norm = (s) => String(s || '').trim().toLowerCase();
+						const container = document.getElementById('displayAllCounters');
+						const tile = container ? container.querySelector(`[data-name="${norm(counter)}"]`) : null;
+						const numEl = tile ? tile.querySelector('.qdb-num') : null;
+							if (numEl) { startBlink(numEl); }
+					} catch(_) {}
+				}
+
+				// queue automated voice announcement (skip duplicates; allow Offline if enabled)
+				if (!isDuplicate && window.speechSynthesis && (!isOfflineVisual || isSpeakOfflineEnabled())) {
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 					pendingAnnouncements.push({ number, counter, category });
 					processAnnouncements();
 				}
@@ -290,6 +608,7 @@
 				const norm = (s) => String(s || '').trim().toLowerCase();
 				const container = document.getElementById('displayAllCounters');
 				if (!container) return;
+<<<<<<< HEAD
 				const tiles = Array.from(container.children || []);
 				for (const tile of tiles) {
 					const label = tile.querySelector('span.text-gray-200');
@@ -311,6 +630,14 @@
 						break;
 					}
 				}
+=======
+				const tile = container.querySelector(`[data-name="${norm(counterName)}"]`);
+				if (!tile) return;
+				const numberEl = tile.querySelector('.qdb-num');
+				const catEl = tile.querySelector('.qdb-cat');
+				if (numberEl) numberEl.textContent = num || '---';
+				if (catEl) catEl.textContent = cat || '';
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			}
 
 			// --- Automated Voice Announcer ---
@@ -340,6 +667,7 @@
 			}
 
 			let preferredVoice = null;
+<<<<<<< HEAD
 			function pickPreferredVoice() {
 				try {
 					const vs = window.speechSynthesis.getVoices() || [];
@@ -349,6 +677,50 @@
 						|| vs.find(v => v.name.includes('Victoria'))
 						|| vs.find(v => (v.lang || '').startsWith('en'))
 						|| vs[0] || null;
+=======
+			function isEdgeBrowser(){ try { return /\bEdg\//.test(navigator.userAgent || ''); } catch(_) { return false; } }
+			function pickPreferredVoice() {
+				try {
+					const vs = window.speechSynthesis.getVoices() || [];
+					const overrideName = (getVoiceOverrideName() || '').toLowerCase().trim();
+					if (overrideName) {
+						preferredVoice = vs.find(v => v.name.toLowerCase().includes(overrideName)) || null;
+						if (preferredVoice) return; // honor override if found
+					}
+					// Explicitly prefer "Michael" if available
+					const preferName = (name) => vs.find(v => v.name.toLowerCase().includes(String(name).toLowerCase()));
+					preferredVoice = preferName('michael');
+					if (preferredVoice) {
+						// Persist Edge's voice choice for cross-browser consistency
+						try { if (isEdgeBrowser() && !overrideName) {
+							localStorage.setItem(lsKey('voice_name'), preferredVoice.name);
+							if (preferredVoice.lang) localStorage.setItem(lsKey('voice_lang'), preferredVoice.lang);
+						}} catch(_) {}
+						return;
+					}
+					// Prefer male/deeper voices across browsers
+					const prefer = (regex) => vs.find(v => regex.test(v.name));
+					preferredVoice = prefer(/guy/i)
+						|| prefer(/male/i)
+						|| prefer(/google uk english male/i)
+						|| prefer(/alex/i)
+						|| prefer(/daniel/i)
+						|| prefer(/george/i)
+						|| prefer(/brian/i)
+						|| prefer(/matt/i)
+						|| prefer(/james/i)
+						|| prefer(/john/i)
+						|| prefer(/david/i)
+						|| vs.find(v => /Microsoft/i.test(v.name) && /^en/.test(v.lang || ''))
+						|| vs.find(v => /Google/i.test(v.name) && /^en/.test(v.lang || ''))
+						|| vs.find(v => (v.lang || '').startsWith('en'))
+						|| vs[0] || null;
+					// Persist Edge's selected voice if no explicit override
+					try { if (preferredVoice && isEdgeBrowser() && !overrideName) {
+						localStorage.setItem(lsKey('voice_name'), preferredVoice.name);
+						if (preferredVoice.lang) localStorage.setItem(lsKey('voice_lang'), preferredVoice.lang);
+					}} catch(_) {}
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 				} catch(e) { preferredVoice = null; }
 			}
 			try {
@@ -363,6 +735,54 @@
 				return s.split('').map(d => map[d] || d).join(' ');
 			}
 
+<<<<<<< HEAD
+=======
+			// Convert integers to words (British style with "and") up to 999,999
+			function numberToWords(num) {
+				try {
+					const n = parseInt(num, 10);
+					if (!isFinite(n)) return String(num);
+					if (n === 0) return 'zero';
+					const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+					const teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+					const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+					function under100(x) {
+						if (x < 10) return ones[x];
+						if (x < 20) return teens[x - 10];
+						const t = Math.floor(x / 10);
+						const o = x % 10;
+						return o ? `${tens[t]} ${ones[o]}` : `${tens[t]}`;
+					}
+
+					function under1000(x) {
+						const h = Math.floor(x / 100);
+						const r = x % 100;
+						// US-style for hundreds: no "and" inside the hundred block
+						if (h && r) return `${ones[h]} hundred ${under100(r)}`;
+						if (h && !r) return `${ones[h]} hundred`;
+						return under100(r);
+					}
+
+					const thousands = Math.floor(n / 1000);
+					const rem = n % 1000;
+					if (!thousands) return under1000(n);
+					const left = `${under1000(thousands)} thousand`;
+					if (!rem) return left;
+					// Requested style: always include "and" after the thousands part
+					if (rem < 100) return `${left} and ${under100(rem)}`;
+					return `${left} and ${under1000(rem)}`;
+				} catch (_) { return String(num); }
+			}
+
+			// Replace each digit block in a ticket string with words
+			function numberStringToWords(raw) {
+				try {
+					return String(raw || '').replace(/\d+/g, (m) => numberToWords(m));
+				} catch (_) { return String(raw || ''); }
+			}
+
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			let audioReady = false;
 			function markAudioReady() {
 				audioReady = true;
@@ -377,8 +797,18 @@
 					const finish = () => { if (resolved) return; resolved = true; markAudioReady(); resolve(); };
 					try {
 						const u = new SpeechSynthesisUtterance(text);
+<<<<<<< HEAD
 						u.rate = 1; u.pitch = 1; u.volume = 1;
 						u.lang = 'en-US';
+=======
+						const rateOverride = getRateOverride();
+						const pitchOverride = getPitchOverride();
+						u.rate = (rateOverride && isFinite(rateOverride)) ? rateOverride : 0.85; // slower default
+						u.pitch = (pitchOverride && isFinite(pitchOverride)) ? pitchOverride : 1.0; // natural human pitch default
+						u.volume = 1;
+						const langOverride = getVoiceOverrideLang();
+						u.lang = langOverride || (preferredVoice && preferredVoice.lang) || 'en-GB';
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 						if (preferredVoice) u.voice = preferredVoice;
 						u.onend = finish;
 						u.onerror = finish;
@@ -398,10 +828,32 @@
 
 			let speaking = false;
 			const pendingAnnouncements = [];
+<<<<<<< HEAD
       const speakDigits = false; // digits toggle removed
       const ANNOUNCE_DELAY_MS = 3000; // pause before speaking next number
 
       function delay(ms){ return new Promise(res => setTimeout(res, ms)); }
+=======
+			const speakDigits = false; // use word-based pronunciation (e.g., "one thousand and three hundred four")
+      const ANNOUNCE_DELAY_MS = 3000; // pause before speaking next number
+
+			function delay(ms){ return new Promise(res => setTimeout(res, ms)); }
+			// Helper to (re)start red blink and stop exactly after CSS iterations
+			function startBlink(el){
+				try {
+					if (!el) return;
+					// Restart animation if already running
+					el.classList.remove('calling-blink');
+					void el.offsetWidth;
+					el.classList.add('calling-blink');
+					const onEnd = () => {
+						try { el.classList.remove('calling-blink'); } catch(_) {}
+						try { el.removeEventListener('animationend', onEnd); } catch(_) {}
+					};
+					el.addEventListener('animationend', onEnd, { once: true });
+				} catch(_) {}
+			}
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			async function processAnnouncements() {
 				if (speaking) return;
 				const next = pendingAnnouncements.shift();
@@ -412,10 +864,17 @@
 					// Use exact phrasing as requested
 					// Wait briefly before announcing to give agents a pause
 					await delay(ANNOUNCE_DELAY_MS);
+<<<<<<< HEAD
 					const rawNumber = String(next.number || '').trim();
 					const numberPhrase = speakDigits ? spellDigits(rawNumber) : rawNumber;
 					const counterPhrase = (String(next.counter || '')).replace(/^counter\s*/i, 'Counter ');
 					  const isOffline = (String(next.category || '').toLowerCase() === 'offline') || /offline/i.test(numberPhrase);
+=======
+						const rawNumber = String(next.number || '').trim();
+						const numberPhrase = speakDigits ? spellDigits(rawNumber) : numberStringToWords(rawNumber);
+						const counterPhrase = (String(next.counter || '')).replace(/^counter\s*/i, 'Counter ');
+					  const isOffline = (String(next.category || '').toLowerCase() === 'offline') || /offline/i.test(rawNumber);
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 					  const phrase = isOffline ? 'Sorry we are offline, please be patient' : `Calling number ${numberPhrase}, Proceed to ${counterPhrase}`;
 					await speakOnce(phrase);
 				} finally {
@@ -445,6 +904,7 @@
 			pollRemoteRing();
 
 			// Same-origin instant trigger (when board runs on 8000): BroadcastChannel + storage
+<<<<<<< HEAD
 			try {
 				const ch = new BroadcastChannel(CHANNEL_NAME);
 				ch.onmessage = (ev) => {
@@ -464,6 +924,31 @@
 				if (e.key === lsKey('queue_updated')) {
 					refreshBoard();
 				}
+=======
+			const ONLY_SERVER_SYNC = true; // enforce server-based sync across all browsers
+			if (!ONLY_SERVER_SYNC) {
+				try {
+					const ch = new BroadcastChannel(CHANNEL_NAME);
+					ch.onmessage = (ev) => {
+						const msg = (ev && ev.data) || {};
+						if (msg && msg.type === 'ring') {
+							updateNowServingFromPayload(msg);
+						} else if (msg && (msg.type === 'queue-update' || msg.type === 'ticket-issued')) {
+							refreshBoard();
+						}
+					};
+				} catch(e) { /* ignore */ }
+			}
+
+			// Always listen for server refresh hints via localStorage to speed up updates across browsers
+			window.addEventListener('storage', (e) => {
+				if (e.key === lsKey('queue_updated')) {
+					refreshBoard();
+				}
+				if (!ONLY_SERVER_SYNC && e.key === lsKey('queue_ring') && e.newValue) {
+					try { const payload = JSON.parse(e.newValue); updateNowServingFromPayload(payload); } catch(err) {}
+				}
+>>>>>>> 6af1558 (Initial commit: SSS Olongapo Branch Queueing System)
 			});
 
 			// Attempt to unlock audio on first interaction and show a helper button if locked

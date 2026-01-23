@@ -155,18 +155,34 @@
 
             async function ensureCategories() {
                 try {
-                    if (!Array.isArray(CATEGORIES) || CATEGORIES.length === 0) {
-                        const res = await fetch('/categories/all', { cache: 'no-store' });
-                        if (res.ok) {
-                            const data = await res.json();
-                            CATEGORIES = data.categories || [];
-                        }
+                    const res = await fetch('/categories/all', { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const incoming = data.categories || [];
+                        const changed = JSON.stringify(incoming) !== JSON.stringify(CATEGORIES);
+                        CATEGORIES = incoming;
+                        return changed;
+                    }
+                } catch (e) {}
+                return false;
+            }
+
+            async function fetchCategoryCounters() {
+                try {
+                    const url = BRANCH ? `/api/category-counters?branch=${encodeURIComponent(BRANCH)}` : '/api/category-counters';
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const next = data.categoryCounters || {};
+                        categoryCounters = next;
                     }
                 } catch (e) {}
             }
 
             async function populateCategorySelects() {
-                await ensureCategories();
+                const changed = await ensureCategories();
+                // Always refresh counters when repopulating
+                await fetchCategoryCounters();
                 while (selectedPriority.options.length > 1) selectedPriority.remove(1);
                 while (selectedRegular.options.length > 1) selectedRegular.remove(1);
                 CATEGORIES.filter(c => c.priority === 'priority').forEach(c => {
@@ -177,6 +193,17 @@
                     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = `${c.name} (${c.rangeStart}-${c.rangeEnd})`;
                     selectedRegular.appendChild(opt);
                 });
+                // If selection already made, update the displayed next numbers
+                if (selectedPriority.value) {
+                    const next = getNextForCategory(selectedPriority.value);
+                    priorityNextNumber.classList.remove('hidden');
+                    priorityNextNumber.querySelector('p.text-red-600').textContent = next !== null ? next : '-';
+                }
+                if (selectedRegular.value) {
+                    const next = getNextForCategory(selectedRegular.value);
+                    regularNextNumber.classList.remove('hidden');
+                    regularNextNumber.querySelector('p.text-blue-600').textContent = next !== null ? next : '-';
+                }
             }
 
             function getNextForCategory(catId) {
@@ -333,11 +360,17 @@
                     if (msg.type === 'ring' || msg.type === 'crawler') {
                         syncFromServer();
                     }
+                    if (msg.type === 'categories-update') {
+                        populateCategorySelects();
+                    }
                 };
             } catch (e) {}
             window.addEventListener('storage', (e) => {
                 if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving')) {
                     syncFromServer();
+                }
+                if (e.key === lsKey('queue_updated')) {
+                    populateCategorySelects();
                 }
             });
         </script>

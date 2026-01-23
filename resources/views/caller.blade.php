@@ -309,17 +309,43 @@
           </div>
         </div>
       </div>
-
+          <!-- Generate New Number Modal -->
+          <div id="generateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-6">
+            <div class="bg-white rounded-xl w-full max-w-md p-6 relative">
+              <button id="closeGenerateModal" class="absolute top-4 right-4 text-gray-600">Close</button>
+              <h3 class="text-xl font-semibold mb-4">Generate New Number</h3>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm text-gray-700 mb-1">Current Number</label>
+                  <input id="generateCurrentNumber" type="text" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-gray-700" readonly />
+                </div>
+                <div>
+                  <label class="block text-sm text-gray-700 mb-1">New Number</label>
+                  <input id="generateNewNumber" type="text" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-gray-700" readonly />
+                </div>
+                <div>
+                  <label class="block text-sm text-gray-700 mb-1">Transaction Type</label>
+                  <select id="generateCategorySelect" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-gray-400"></select>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                  <button id="generateSaveBtn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">Generate</button>
+                </div>
+                <p id="generateError" class="text-sm text-red-600 hidden">Please fill in all fields.</p>
+              </div>
+            </div>
+          </div>
     </div>
 
     <script>
-      // Resolve active branch from /branch/{slug}/caller or ?branch=...
-      const BRANCH = (() => {
+            // Resolve active branch from /branch/{slug}/caller or ?branch=...
+            const BRANCH = (() => {
         const qs = new URLSearchParams(location.search).get('branch');
         if (qs) return qs;
         const m = location.pathname.match(/\/branch\/([^\/]+)\//);
-        return m ? m[1] : null;
-      })();
+        if (m) return m[1];
+        try { const saved = localStorage.getItem('lastBranchSlug'); if (saved) return saved; } catch(e) {}
+        return null;
+            })();
       // Branch-scoped storage/channel helpers
       const lsKey = (base) => BRANCH ? `${base}:${BRANCH}` : base;
       const CHANNEL_NAME = lsKey('queue-events');
@@ -367,13 +393,33 @@
         return names;
       }
 
-      function persistAddedCounters(names) {
+      async function persistAddedCounters(names) {
+        // Persist to server so all browsers see the same list
+        try {
+          await fetch('/counters/list' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : ''), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') },
+            body: JSON.stringify({ names, branch: BRANCH })
+          });
+        } catch(e) { /* ignore */ }
+        // Also persist locally as a fallback
         try { localStorage.setItem(lsKey('added_counters'), JSON.stringify(names)); } catch(e) {}
+        // Broadcast update so boards refresh immediately
+        try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+        try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
       }
 
-      function loadAddedCounters() {
-        let added = [];
-        try { added = JSON.parse(localStorage.getItem(lsKey('added_counters')) || '[]'); } catch(e) { added = []; }
+      async function loadAddedCounters() {
+        // Prefer server-provided list; fallback to localStorage
+        let namesFromServer = null;
+        try {
+          const res = await fetch('/counters/list' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : ''), { cache: 'no-store' });
+          if (res.ok) { const data = await res.json(); namesFromServer = Array.isArray(data.names) ? data.names : null; }
+        } catch(e) { namesFromServer = null; }
+        let added = namesFromServer || [];
+        if (!added.length) {
+          try { added = JSON.parse(localStorage.getItem(lsKey('added_counters')) || '[]'); } catch(e) { added = []; }
+        }
         if (!Array.isArray(added)) added = [];
         if (currentCounterSelect) {
           const existing = new Set(getCurrentCounterNames());
@@ -389,7 +435,7 @@
         added.forEach(name => { if (!existingAll.has(name)) ALL_COUNTERS.push(name); });
       }
 
-      function addCounter() {
+      async function addCounter() {
         const names = getCurrentCounterNames();
         const nums = names.map(getNumericCounterIndex).filter(n => typeof n === 'number');
         const next = (nums.length ? Math.max(...nums) : 0) + 1;
@@ -404,11 +450,11 @@
         if (!ALL_COUNTERS.includes(name)) ALL_COUNTERS.push(name);
         const added = names.filter(n => getNumericCounterIndex(n) !== null);
         added.push(name);
-        persistAddedCounters(added);
+        await persistAddedCounters(added);
         renderDisplay();
       }
 
-      function removeCounter() {
+      async function removeCounter() {
         const names = getCurrentCounterNames();
         const numeric = names.filter(n => getNumericCounterIndex(n) !== null);
         if (numeric.length <= 1) {
@@ -437,7 +483,7 @@
         const idx = ALL_COUNTERS.indexOf(target);
         if (idx >= 0) ALL_COUNTERS.splice(idx, 1);
         const remainingNumeric = getCurrentCounterNames().filter(n => getNumericCounterIndex(n) !== null);
-        persistAddedCounters(remainingNumeric);
+        await persistAddedCounters(remainingNumeric);
         renderDisplay();
       }
 
@@ -466,8 +512,21 @@
             o.value = cat.id; o.textContent = cat.name; remSel.appendChild(o);
           });
         }
+      // Pull categories from the server and re-render dropdowns
+      async function fetchCategories() {
+        try {
+          const res = await fetch('/categories/all', { cache: 'no-store' });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (Array.isArray(data.categories)) {
+            // Replace in-place to keep references predictable
+            CATEGORIES.length = 0;
+            data.categories.forEach(c => CATEGORIES.push(c));
+            renderCategories();
+            renderCurrentlyServing();
+          }
+        } catch (e) { /* ignore */ }
       }
-
       function computeStats() {
         const waiting = tickets.filter(t => t.status === 'waiting');
         const priorityWaiting = waiting.filter(t => t.priority === 'priority').length;
@@ -477,6 +536,19 @@
         priorityWaitingEl.textContent = priorityWaiting;
         regularWaitingEl.textContent = regularWaiting;
         totalServedEl.textContent = served;
+      }
+
+      // Fetch server-calculated next numbers per category (branch-aware)
+      async function fetchCategoryCounters() {
+        try {
+          const url = BRANCH ? `/api/category-counters?branch=${encodeURIComponent(BRANCH)}` : '/api/category-counters';
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok) return;
+          const data = await res.json();
+          const map = data && data.categoryCounters ? data.categoryCounters : {};
+          Object.keys(CATEGORY_COUNTERS).forEach(k => { delete CATEGORY_COUNTERS[k]; });
+          Object.entries(map).forEach(([k,v]) => { CATEGORY_COUNTERS[k] = v; });
+        } catch (e) { /* ignore */ }
       }
 
       function renderQueue() {
@@ -538,13 +610,15 @@
         if (currentCounterTicket) {
           // if categories are selected, ensure the serving ticket matches one of them
           if (!selectedCategories || selectedCategories.length === 0) {
-            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${currentCounterTicket.number}</div><p class="text-gray-600">${currentCounterTicket.category}</p>`;
+            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${currentCounterTicket.number}</div><p class="text-gray-600">${currentCounterTicket.category}</p><div class="mt-4"><button id="openGenerateFromServing" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Generate New Number</button></div>`;
+            const btnG = document.getElementById('openGenerateFromServing'); if (btnG) btnG.addEventListener('click', () => openGenerateModal(currentCounterTicket));
             return;
           }
           // check category match
           const matchByCategory = (selectedCategories.includes(String(currentCounterTicket.category_id)) || selectedCategories.includes(currentCounterTicket.category));
           if (matchByCategory) {
-            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${currentCounterTicket.number}</div><p class="text-gray-600">${currentCounterTicket.category}</p>`;
+            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${currentCounterTicket.number}</div><p class="text-gray-600">${currentCounterTicket.category}</p><div class="mt-4"><button id="openGenerateFromServing" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Generate New Number</button></div>`;
+            const btnG = document.getElementById('openGenerateFromServing'); if (btnG) btnG.addEventListener('click', () => openGenerateModal(currentCounterTicket));
             return;
           }
           // otherwise, fall through to preview or lastCalledTicket
@@ -554,7 +628,8 @@
         if (lastCalledTicket && String(lastCalledTicket.counter) === String(currentCounterValue)) {
           // if categories are selected, ensure the lastCalledTicket belongs to one of them
           if (!selectedCategories || selectedCategories.length === 0 || selectedCategories.includes(String(lastCalledTicket.category_id)) || selectedCategories.includes(lastCalledTicket.category)) {
-            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${lastCalledTicket.number}</div><p class="text-gray-600">${lastCalledTicket.category || ''}</p>`;
+            currentlyServing.innerHTML = `<div class="text-green-600 text-6xl mb-2">${lastCalledTicket.number}</div><p class="text-gray-600">${lastCalledTicket.category || ''}</p><div class="mt-4"><button id="openGenerateFromServing" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Generate New Number</button></div>`;
+            const btnG = document.getElementById('openGenerateFromServing'); if (btnG) btnG.addEventListener('click', () => openGenerateModal(lastCalledTicket));
             return;
           }
         }
@@ -567,11 +642,14 @@
           currentlyServing.innerHTML = `
             <div class="text-gray-700 text-6xl mb-2">${nextNum}</div>
             <p class="text-gray-600">Preview next for <strong>${catObj.name || firstCatId}</strong></p>
+            <div class="mt-4"><button id="openGenerateFromServing" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Generate New Number</button></div>
           `;
+          const btnG = document.getElementById('openGenerateFromServing'); if (btnG) btnG.addEventListener('click', () => openGenerateModal(null));
           return;
         }
 
-        currentlyServing.innerHTML = '<div class="text-gray-400 text-4xl">No Active Call</div>';
+        currentlyServing.innerHTML = '<div class="text-gray-400 text-4xl">No Active Call</div><div class="mt-4"><button id="openGenerateFromServing" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Generate New Number</button></div>';
+        const btnG = document.getElementById('openGenerateFromServing'); if (btnG) btnG.addEventListener('click', () => openGenerateModal(null));
       }
 
       // update currentlyServing when counter selection changes
@@ -627,14 +705,16 @@
           ch.onmessage = (ev) => {
             const msg = ev && ev.data;
             if (!msg) return;
-            if (msg.type === 'ring' || msg.type === 'crawler' || msg.type === 'queue-update' || msg.type === 'ticket-issued') {
+            if (msg.type === 'ring' || msg.type === 'crawler' || msg.type === 'queue-update' || msg.type === 'ticket-issued' || msg.type === 'categories-update') {
               syncFromServer();
+              fetchCategories();
             }
           };
         } catch (e) {}
         window.addEventListener('storage', (e) => {
           if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving') || e.key === lsKey('queue_updated')) {
             syncFromServer();
+            fetchCategories();
           }
         });
       // category selection handling moved to dropdown change event above
@@ -678,7 +758,7 @@
             // Broadcast the call so Display Board announces automatically (single shared ts)
             try {
               const sharedTs = Date.now();
-              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
+              const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
               try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
               try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
               try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -719,7 +799,7 @@
             }
             if (!ticket) { alert('No active call for this counter'); return; }
             const sharedTs = Date.now();
-            const payload = { type: 'ring', number: ticket.number, category: ticket.category || '', counter, ts: sharedTs };
+            const payload = { type: 'ring', number: ticket.number, category: ticket.category || '', counter, ts: sharedTs, branch: BRANCH };
             try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
             try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
             try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -750,7 +830,7 @@
           try {
             const counter = currentCounterSelect ? currentCounterSelect.value : (currentCounterLabelEl ? currentCounterLabelEl.textContent : '-');
             const sharedTs = Date.now();
-            const payload = { type: 'ring', number: msg, category: 'Offline', counter, ts: sharedTs };
+            const payload = { type: 'ring', number: msg, category: 'Offline', counter, ts: sharedTs, branch: BRANCH };
             try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
             try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
             try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -796,7 +876,8 @@
               // Broadcast the call so Display Board announces automatically (single shared ts)
               try {
                 const sharedTs = Date.now();
-                const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs };
+                const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
+                const payload = { type: 'ring', number: data.ticket.number, category: data.ticket.category || '', counter: data.ticket.counter || (document.getElementById('currentCounter')?.value || ''), ts: sharedTs, branch: BRANCH };
                 try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage(payload); } catch(e) {}
                 try { localStorage.setItem(lsKey('queue_ring'), JSON.stringify(payload)); } catch(e) {}
                 try { localStorage.setItem(lsKey('last_now_serving'), JSON.stringify({ number: payload.number, counter: payload.counter, category: payload.category, ts: payload.ts })); } catch(e) {}
@@ -1148,7 +1229,9 @@
               selectedCategories = [data.category.id];
             }
             renderCurrentlyServing();
-          }
+          // Broadcast to other tabs and trigger server-only boards to refresh
+          try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'categories-update', branch: BRANCH }); } catch(e) {}
+          try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
           closeAddCategoryModal();
         } catch (e) {
           alert('Error adding category');
@@ -1186,7 +1269,9 @@
             selectedCategories = [];
             if (categorySelect) categorySelect.value = '';
             renderCurrentlyServing();
-          }
+          // Broadcast to other tabs and trigger server-only boards to refresh
+          try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'categories-update', branch: BRANCH }); } catch(e) {}
+          try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
         } catch (e) {
           alert('Error removing category');
         } finally {
@@ -1229,15 +1314,164 @@
           const ch = new BroadcastChannel(CHANNEL_NAME);
           ch.postMessage({ type: 'crawler', text: val });
         } catch(e) { /* ignore */ }
+        // persist to server so other browsers stay in sync
+        try {
+          fetch('/crawler' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : ''), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') },
+            body: JSON.stringify({ text: val, branch: BRANCH })
+          }).catch(()=>{});
+        } catch(e) {}
+        // hint boards to refresh immediately
+        try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
         closeCrawlerModal();
       }
 
       if (crawlerTextBtn) crawlerTextBtn.addEventListener('click', openCrawlerModal);
       if (closeCrawlerText) closeCrawlerText.addEventListener('click', closeCrawlerModal);
       if (saveCrawlerText) saveCrawlerText.addEventListener('click', saveCrawler);
+
+      // --- Generate New Number Logic ---
+      const generateModal = document.getElementById('generateModal');
+      const closeGenerateModalBtn = document.getElementById('closeGenerateModal');
+      const generateCurrentNumberInput = document.getElementById('generateCurrentNumber');
+      const generateNewNumberInput = document.getElementById('generateNewNumber');
+      const generateCategorySelect = document.getElementById('generateCategorySelect');
+      const generateSaveBtn = document.getElementById('generateSaveBtn');
+      const generateErrorEl = document.getElementById('generateError');
+
+
+      function populateGenerateCategoryOptions() {
+        if (!generateCategorySelect) return;
+        generateCategorySelect.innerHTML = '<option value="">Select category</option>';
+        CATEGORIES.forEach(cat => {
+          const opt = document.createElement('option');
+          // Use category id so backend derives numbering/priority
+          opt.value = cat.id;
+          opt.textContent = cat.name || cat.id;
+          generateCategorySelect.appendChild(opt);
+        });
+      }
+
+      function parseTicketNumber(raw) {
+        try { const m = String(raw || '').match(/\d+/); return m ? parseInt(m[0], 10) : NaN; } catch(e) { return NaN; }
+      }
+      function nextNumberForCategory(cat) {
+        try {
+          const nums = (tickets || [])
+            .filter(t => String(t.category || t.category_id) === String(cat))
+            .map(t => parseTicketNumber(t.number))
+            .filter(n => Number.isFinite(n));
+          const max = nums.length ? Math.max(...nums) : NaN;
+          if (Number.isFinite(max)) return String(max + 1);
+        } catch(e) {}
+        return '';
+      }
+      function computeAutoNewNumber(ticket, selectedCategory) {
+        // Prefer server-provided next number for the selected category
+        const cat = selectedCategory || (ticket && (ticket.category_id || ticket.category)) || '';
+        if (cat && CATEGORY_COUNTERS && CATEGORY_COUNTERS.hasOwnProperty(cat)) {
+          const v = CATEGORY_COUNTERS[cat];
+          if (v !== undefined && v !== null) return String(v);
+        }
+        // Fallback: derive next using local tickets (may be incomplete if older tickets lack category_id)
+        const catNext = cat ? nextNumberForCategory(cat) : '';
+        if (catNext) return catNext;
+        // Fallback: current serving + 1
+        const base = parseTicketNumber(ticket && ticket.number ? ticket.number : '');
+        if (Number.isFinite(base)) return String(base + 1);
+        return '';
+      }
+
+      async function openGenerateModal(ticket) {
+        generateErrorEl.classList.add('hidden');
+        populateGenerateCategoryOptions();
+        await fetchCategoryCounters();
+        const curTicket = ticket || lastCalledTicket || {};
+        const curNum = curTicket && curTicket.number ? String(curTicket.number) : '';
+        generateCurrentNumberInput.value = curNum;
+        // default category to current ticket's category id/name if possible
+        let selectedCat = '';
+        try {
+          const catVal = (curTicket && (curTicket.category_id || curTicket.category)) || '';
+          if (catVal) {
+            const match = Array.from(generateCategorySelect.options).find(o => o.value === catVal || o.textContent === catVal);
+            if (match) { generateCategorySelect.value = match.value; selectedCat = match.value; }
+          }
+        } catch(e) {}
+        // compute auto new based on server counters
+        const autoNew = computeAutoNewNumber(curTicket, selectedCat || generateCategorySelect.value || '');
+        generateNewNumberInput.value = autoNew || '';
+        generateModal.classList.remove('hidden');
+        generateModal.classList.add('flex');
+      }
+
+      function closeGenerateModal() {
+        generateModal.classList.add('hidden');
+        generateModal.classList.remove('flex');
+      }
+      if (closeGenerateModalBtn) closeGenerateModalBtn.addEventListener('click', closeGenerateModal);
+      if (generateCategorySelect) {
+        generateCategorySelect.addEventListener('change', () => {
+          // Recompute suggestion when category changes to keep number in the correct line
+          const curTicket = lastCalledTicket || {};
+          const autoNew = computeAutoNewNumber(curTicket, generateCategorySelect.value || '');
+          if (autoNew) generateNewNumberInput.value = autoNew;
+        });
+      }
+
+      async function saveGenerateCall() {
+        const currentNumber = (generateCurrentNumberInput.value || '').trim();
+        const categoryId = generateCategorySelect ? generateCategorySelect.value : '';
+        if (!categoryId) { generateErrorEl.classList.remove('hidden'); return; }
+        generateErrorEl.classList.add('hidden');
+        generateSaveBtn.disabled = true;
+        try {
+          // Persist a new WAITING ticket via backend using category id
+          const url = `{{ route('ticket.generate') }}` + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : '');
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({
+              mode: 'screen',
+              transaction: categoryId
+            })
+          });
+          // Parse JSON only when server responds with JSON
+          const ct = (res.headers.get('content-type') || '').toLowerCase();
+          let data = null;
+          if (ct.includes('application/json')) {
+            data = await res.json();
+          } else {
+            const text = await res.text();
+            throw new Error('Server returned non-JSON response.\n' + text.slice(0, 200));
+          }
+          if (!res.ok) { throw new Error(data && data.message ? data.message : 'Failed to generate ticket'); }
+
+          if (data && Array.isArray(data.tickets)) {
+            tickets = data.tickets;
+          }
+
+          // Broadcast update so other views refresh (no ring for waiting)
+          try { const ch2 = new BroadcastChannel(CHANNEL_NAME); ch2.postMessage({ type: 'queue-update', branch: BRANCH }); } catch(e) {}
+          try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
+
+          lastCalledTicket = null;
+          refreshAll();
+          closeGenerateModal();
+        } catch (e) {
+          alert(e && e.message ? e.message : 'Failed to generate ticket');
+        } finally {
+          generateSaveBtn.disabled = false;
+        }
+      }
+      if (generateSaveBtn) generateSaveBtn.addEventListener('click', saveGenerateCall);
+
     </script>
   </body>
 </html>
-<!DOCTYPE html>
-<html>
-<head>

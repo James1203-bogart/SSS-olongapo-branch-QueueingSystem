@@ -89,13 +89,24 @@ Route::get('/ring/last', function () {
         ->header('Access-Control-Allow-Headers', 'Content-Type');
 })->name('ring.last');
 
-// All Counters Status (branch-aware): returns current serving per counter
+// All Counters Status (branch-aware): returns current serving per counter and dynamic counter names
 Route::get('/counters/status', function () {
     $branch = request()->route('branch') ?? request('branch');
-    $COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+    $DEFAULT_COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'Medical', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+    $REQUIRED = ['Backroom', 'Medical', 'Priority', 'E-Center Regular', 'E-Center Priority'];
     $norm = function ($s) { return strtolower(trim((string) $s)); };
+    // Load dynamic counter names from cache if present
+    try {
+        $names = Cache::get($branch ? ('counters:names:'.$branch) : 'counters:names');
+        if (!is_array($names) || empty($names)) { $names = $DEFAULT_COUNTERS; }
+    } catch (\Throwable $e) { $names = $DEFAULT_COUNTERS; }
+    // Always ensure required counters are present (case-insensitive union)
+    $have = [];
+    foreach ($names as $n) { $have[$norm($n)] = true; }
+    foreach ($REQUIRED as $req) { if (!isset($have[$norm($req)])) { $names[] = $req; $have[$norm($req)] = true; } }
+    // Initialize statuses for each known counter name
     $statuses = [];
-    foreach ($COUNTERS as $name) { $statuses[$name] = null; }
+    foreach ($names as $name) { $statuses[$name] = null; }
 
     // Prefer Couchbase when bound, else SQL; fallback to session
     $cbRepo = app()->bound(\App\Services\CouchbaseTicketRepository::class) ? app()->make(\App\Services\CouchbaseTicketRepository::class) : null;
@@ -128,7 +139,7 @@ Route::get('/counters/status', function () {
         }
     }
 
-    foreach ($COUNTERS as $name) {
+    foreach ($names as $name) {
         $key = $norm($name);
         if (isset($byCounter[$key])) { $statuses[$name] = $byCounter[$key]; }
     }
@@ -142,7 +153,7 @@ Route::get('/counters/status', function () {
             $isOffline = ($cat === 'offline') || (stripos($num, 'offline') !== false);
             if (!$isOffline) {
             $k = $norm($payload['counter']);
-            foreach ($COUNTERS as $name) {
+            foreach ($names as $name) {
                 if ($norm($name) === $k) { $statuses[$name] = [ 'number' => ($payload['number'] ?? '---'), 'category' => ($payload['category'] ?? '') ]; break; }
             }
             }
@@ -152,8 +163,43 @@ Route::get('/counters/status', function () {
     return response()->json([
         'branch' => $branch,
         'counters' => $statuses,
+        'names' => $names,
     ]);
 })->name('counters.status');
+
+// Manage dynamic counters list per branch
+Route::get('/counters/list', function () {
+    $branch = request()->route('branch') ?? request('branch');
+    $DEFAULT_COUNTERS = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'Medical', 'E-Center Regular', 'E-Center Priority', 'Priority'];
+    try {
+        $names = Cache::get($branch ? ('counters:names:'.$branch) : 'counters:names');
+        if (!is_array($names) || empty($names)) { $names = $DEFAULT_COUNTERS; }
+    } catch (\Throwable $e) { $names = $DEFAULT_COUNTERS; }
+    // Ensure required counters are included
+    $REQUIRED = ['Backroom', 'Medical', 'Priority', 'E-Center Regular', 'E-Center Priority'];
+    $norm = function ($s) { return strtolower(trim((string) $s)); };
+    $have = [];
+    foreach ($names as $n) { $have[$norm($n)] = true; }
+    foreach ($REQUIRED as $req) { if (!isset($have[$norm($req)])) { $names[] = $req; $have[$norm($req)] = true; } }
+    return response()->json(['branch' => $branch, 'names' => $names]);
+})->name('counters.list.get');
+
+Route::post('/counters/list', function (Request $request) {
+    $branch = $request->route('branch') ?? $request->input('branch') ?? $request->query('branch');
+    $names = $request->input('names', []);
+    if (!is_array($names)) { return response()->json(['ok' => false, 'message' => 'Invalid names'], 400); }
+    // sanitize: keep strings, trim blanks, ensure at least one counter remains
+    $names = array_values(array_filter(array_map(function($n){ return is_string($n) ? trim($n) : ''; }, $names), function($n){ return $n !== ''; }));
+    if (empty($names)) { $names = ['Counter 1']; }
+    // Enforce required counters cannot be removed
+    $REQUIRED = ['Backroom', 'Medical', 'Priority', 'E-Center Regular', 'E-Center Priority'];
+    $norm = function ($s) { return strtolower(trim((string) $s)); };
+    $have = [];
+    foreach ($names as $n) { $have[$norm($n)] = true; }
+    foreach ($REQUIRED as $req) { if (!isset($have[$norm($req)])) { $names[] = $req; $have[$norm($req)] = true; } }
+    Cache::put($branch ? ('counters:names:'.$branch) : 'counters:names', $names, now()->addDays(7));
+    return response()->json(['ok' => true, 'branch' => $branch, 'names' => $names]);
+})->name('counters.list.post');
 
 // API: Get all tickets for a branch (for live polling)
 Route::get('/api/tickets', function (Request $request) {
@@ -172,3 +218,31 @@ Route::get('/api/tickets', function (Request $request) {
     }
     return response()->json(['tickets' => $tickets]);
 });
+
+// API: Get next counters per category (branch-aware)
+Route::get('/api/category-counters', function (Request $request) {
+    $branch = $request->route('branch') ?? $request->query('branch');
+    $controller = app()->make(\App\Http\Controllers\QueueController::class);
+    try {
+        $counters = $controller->categoryCounters($branch);
+    } catch (\Throwable $e) {
+        $counters = [];
+    }
+    return response()->json(['branch' => $branch, 'categoryCounters' => $counters]);
+});
+
+// Crawler text: branch-aware server storage so all browsers stay in sync
+Route::get('/crawler', function () {
+    $branch = request()->route('branch') ?? request('branch');
+    $key = $branch ? ('crawler_text:'.$branch) : 'crawler_text';
+    $text = Cache::get($key, 'Hello');
+    return response()->json(['branch' => $branch, 'text' => (string) $text]);
+})->name('crawler.get');
+
+Route::post('/crawler', function (Request $request) {
+    $branch = $request->route('branch') ?? $request->input('branch') ?? $request->query('branch');
+    $text = (string) ($request->input('text', 'Hello'));
+    $key = $branch ? ('crawler_text:'.$branch) : 'crawler_text';
+    Cache::put($key, $text, now()->addDays(7));
+    return response()->json(['ok' => true, 'branch' => $branch, 'text' => $text]);
+})->name('crawler.post');
