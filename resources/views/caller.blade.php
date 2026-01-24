@@ -670,6 +670,7 @@
           return;
         }
         document.getElementById('categoryWarning').classList.add('hidden');
+        // Disable and add a post-call cooldown to avoid rapid successive calls
         callNextBtn.disabled = true;
         const counter = document.getElementById('currentCounter').value;
         try {
@@ -724,7 +725,24 @@
           console.error(err);
           alert('Error calling next');
         } finally {
-          callNextBtn.disabled = false;
+          // Keep the button disabled for 5 seconds with a short countdown
+          try {
+            const originalText = callNextBtn.textContent;
+            let remaining = 5;
+            callNextBtn.textContent = `Please wait ${remaining}s...`;
+            const timer = setInterval(() => {
+              remaining -= 1;
+              if (remaining <= 0) {
+                clearInterval(timer);
+                callNextBtn.textContent = originalText;
+                callNextBtn.disabled = false;
+              } else {
+                callNextBtn.textContent = `Please wait ${remaining}s...`;
+              }
+            }, 1000);
+          } catch (_) {
+            setTimeout(() => { callNextBtn.disabled = false; }, 5000);
+          }
         }
       });
 
@@ -1295,7 +1313,7 @@
           if (selectedCategories && selectedCategories.length > 0) {
             issueTransactionSelect.value = selectedCategories[0];
           }
-        }
+        } 
         issueTicketError.classList.add('hidden');
         issueTicketModal.classList.remove('hidden');
         issueTicketModal.classList.add('flex');
