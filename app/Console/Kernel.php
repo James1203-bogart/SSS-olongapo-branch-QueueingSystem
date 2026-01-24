@@ -12,9 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Reset all queues daily at 6:00 PM in app timezone
+        // Reset queues once between 6:00 PM and 7:00 PM in app timezone
+        // Runs every 5 minutes during the window; command enforces once-per-day
         $schedule->command('queue:reset-system')
-            ->dailyAt('18:00')
+            ->everyFiveMinutes()
+            ->between('18:00', '19:00')
             ->timezone(config('app.timezone'));
     }
 

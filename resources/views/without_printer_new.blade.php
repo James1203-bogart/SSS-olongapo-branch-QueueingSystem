@@ -153,6 +153,35 @@ async function populateCategorySelects() {
         selectedRegular.appendChild(opt);
     });
 }
+async function reloadCategoriesAndCounters() {
+    try {
+        const res = await fetch('/categories/all', { cache: 'no-store' });
+        if (res.ok) {
+            const data = await res.json();
+            CATEGORIES = data.categories || CATEGORIES;
+            await populateCategorySelects();
+        }
+    } catch (_) {}
+    try {
+        const url = BRANCH ? `/categories/counters?branch=${encodeURIComponent(BRANCH)}` : '/categories/counters';
+        const r2 = await fetch(url, { cache: 'no-store' });
+        if (r2.ok) {
+            const d2 = await r2.json();
+            categoryCounters = d2.categoryCounters || categoryCounters;
+            // update preview panels if a selection is active
+            if (selectedPriority.value) {
+                const next = getNextForCategory(selectedPriority.value);
+                priorityNextNumber.classList.remove('hidden');
+                priorityNextNumber.querySelector('p.text-red-600').textContent = next !== null ? next : '-';
+            }
+            if (selectedRegular.value) {
+                const next = getNextForCategory(selectedRegular.value);
+                regularNextNumber.classList.remove('hidden');
+                regularNextNumber.querySelector('p.text-blue-600').textContent = next !== null ? next : '-';
+            }
+        }
+    } catch (_) {}
+}
 function getNextForCategory(catId) {
     return categoryCounters[catId] ?? null;
 }
@@ -293,6 +322,9 @@ try {
 window.addEventListener('storage', (e) => {
     if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving')) {
         syncFromServer();
+    }
+    if (e.key === lsKey('queue_updated')) {
+        reloadCategoriesAndCounters();
     }
 });
 </script>

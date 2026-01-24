@@ -14,6 +14,8 @@
         100% { transform: translateX(-100%); }
       }
       .crawler-animate { animation: crawlerMove 30s linear infinite; }
+      /* Hide deprecated Generate New Number button */
+      #generateNowServingBtn { display: none !important; }
     </style>
   </head>
   <body class="bg-gray-100 min-h-screen">
@@ -72,6 +74,8 @@
             <div class="text-center py-8" id="currentlyServing">
               <div class="text-gray-400 text-4xl">No Active Call</div>
             </div>
+            <!-- New: Issue a new ticket button (below number) -->
+            <button id="issueNewTicketBtn" class="w-full bg-blue-600 text-white py-4 mt-4 rounded-lg hover:bg-blue-700 transition-colors text-lg">Select New Transaction & Generate Number</button>
           </div>
 
           <!-- Call Next -->
@@ -306,6 +310,26 @@
               <button id="saveAddCategory" class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors">Save</button>
             </div>
             <p id="addCatError" class="text-sm text-red-600 hidden">Please enter a name and select a type.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Issue Ticket Modal -->
+      <div id="issueTicketModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-6">
+        <div class="bg-white rounded-xl w-full max-w-md p-6 relative">
+          <button id="closeIssueTicket" class="absolute top-4 right-4 text-gray-600">Close</button>
+          <h3 class="text-xl font-semibold mb-4">Select Transaction & Generate Number</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-700 mb-1">Transaction Category</label>
+              <select id="issueTransactionSelect" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-gray-400">
+                <option value="">Select a category</option>
+              </select>
+            </div>
+            <p id="issueTicketError" class="text-sm text-red-600 hidden">Please select a category.</p>
+            <div class="flex items-center justify-end gap-2 pt-2">
+              <button id="confirmIssueTicket" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Generate</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1222,19 +1246,105 @@
       }
       function saveCrawler() {
         const val = (crawlerTextInput.value || '').trim() || 'Hello';
-        localStorage.setItem(lsKey('crawler_text'), val);
+        // Persist locally for immediate UI feedback
+        try { localStorage.setItem(lsKey('crawler_text'), val); } catch(e) {}
         applyCrawlerTextToDom(val);
-        // also broadcast to other tabs if available
+        // Broadcast to same-origin tabs
+        try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'crawler', text: val }); } catch(e) {}
+        // Persist server-side so Chrome/Edge and other devices stay in sync
         try {
-          const ch = new BroadcastChannel(CHANNEL_NAME);
-          ch.postMessage({ type: 'crawler', text: val });
-        } catch(e) { /* ignore */ }
+          const url = BRANCH ? (`/crawler?branch=${encodeURIComponent(BRANCH)}`) : '/crawler';
+          fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({ text: val, branch: BRANCH })
+          }).then(() => {
+            // Hint boards to refresh instantly
+            try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
+          }).catch(()=>{});
+        } catch(e) {}
         closeCrawlerModal();
       }
 
       if (crawlerTextBtn) crawlerTextBtn.addEventListener('click', openCrawlerModal);
       if (closeCrawlerText) closeCrawlerText.addEventListener('click', closeCrawlerModal);
       if (saveCrawlerText) saveCrawlerText.addEventListener('click', saveCrawler);
+
+      // --- Issue New Ticket (Select Transaction & Generate Number) ---
+      const issueNewTicketBtn = document.getElementById('issueNewTicketBtn');
+      const issueTicketModal = document.getElementById('issueTicketModal');
+      const closeIssueTicket = document.getElementById('closeIssueTicket');
+      const issueTransactionSelect = document.getElementById('issueTransactionSelect');
+      const confirmIssueTicket = document.getElementById('confirmIssueTicket');
+      const issueTicketError = document.getElementById('issueTicketError');
+
+      function openIssueTicketModal() {
+        // populate categories each open to keep in sync
+        if (issueTransactionSelect) {
+          issueTransactionSelect.innerHTML = '<option value="">Select a category</option>';
+          CATEGORIES.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            issueTransactionSelect.appendChild(opt);
+          });
+          // preselect currently handled category if any
+          if (selectedCategories && selectedCategories.length > 0) {
+            issueTransactionSelect.value = selectedCategories[0];
+          }
+        }
+        issueTicketError.classList.add('hidden');
+        issueTicketModal.classList.remove('hidden');
+        issueTicketModal.classList.add('flex');
+      }
+      function closeIssueTicketModal() {
+        issueTicketModal.classList.add('hidden');
+        issueTicketModal.classList.remove('flex');
+      }
+      async function submitIssueTicket() {
+        const catId = issueTransactionSelect ? issueTransactionSelect.value : '';
+        if (!catId) { issueTicketError.classList.remove('hidden'); return; }
+        issueTicketError.classList.add('hidden');
+        confirmIssueTicket.disabled = true;
+        try {
+          const url = '{{ route('ticket.generate') }}' + (BRANCH ? `?branch=${encodeURIComponent(BRANCH)}` : '');
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({ mode: 'screen', transaction: catId, branch: BRANCH })
+          });
+          let data;
+          try { data = await res.json(); } catch (_) { data = null; }
+          if (res.ok && data && data.ticket) {
+            tickets = data.tickets || tickets;
+            // update CATEGORY_COUNTERS if provided
+            if (data.categoryCounters && typeof data.categoryCounters === 'object') {
+              Object.assign(CATEGORY_COUNTERS, data.categoryCounters);
+            }
+            refreshAll();
+            // Broadcast immediate update so Display Boards and other tabs refresh
+            try { const ch = new BroadcastChannel(CHANNEL_NAME); ch.postMessage({ type: 'ticket-issued', branch: BRANCH, ticket: data.ticket }); } catch(e) {}
+            try { localStorage.setItem(lsKey('queue_updated'), String(Date.now())); } catch(e) {}
+            closeIssueTicketModal();
+          } else {
+            alert((data && data.message) ? data.message : 'Failed to generate ticket');
+          }
+        } catch (e) {
+          alert('Error generating ticket');
+        } finally {
+          confirmIssueTicket.disabled = false;
+        }
+      }
+      if (issueNewTicketBtn) issueNewTicketBtn.addEventListener('click', openIssueTicketModal);
+      if (closeIssueTicket) closeIssueTicket.addEventListener('click', closeIssueTicketModal);
+      if (confirmIssueTicket) confirmIssueTicket.addEventListener('click', submitIssueTicket);
     </script>
   </body>
 </html>

@@ -47,8 +47,18 @@ class QueueController extends Controller
             [ 'id' => 'welcome-back', 'name' => 'Welcome Back Ka-SSS', 'priority' => 'regular', 'rangeStart' => 1201, 'rangeEnd' => 1299, 'color' => 'blue' ],
         ];
 
-        // Merge with any user-added categories stored in session
-        $extras = Session::get('extra_categories', []);
+        // Load global removed list and extras from cache so all browsers share changes
+        $removed = Cache::get('categories:removed', []);
+        if (!is_array($removed)) { $removed = []; }
+        // Filter out removed built-ins
+        if (!empty($removed)) {
+            $base = array_values(array_filter($base, function ($c) use ($removed) {
+                return !in_array($c['id'], $removed, true);
+            }));
+        }
+
+        // Merge with any user-added categories stored in cache (global)
+        $extras = Cache::get('categories:extras', []);
         if (is_array($extras) && !empty($extras)) {
             // ensure each extra has required keys and assign ranges when missing
             $BASE_START = 1301; // first dynamic block
@@ -79,10 +89,29 @@ class QueueController extends Controller
             }
             unset($e);
             // Persist any backfilled ranges
-            Session::put('extra_categories', $extras);
+            Cache::put('categories:extras', $extras, now()->addDays(30));
             $base = array_merge($base, $extras);
         }
 
+        // Safety: if user removed everything by mistake, fall back to defaults
+        if (!is_array($base) || count($base) === 0) {
+            $base = [
+                [ 'id' => 'acop', 'name' => 'ACOP', 'priority' => 'regular', 'rangeStart' => 100, 'rangeEnd' => 199, 'color' => 'blue' ],
+                [ 'id' => 'membership-priority', 'name' => 'Membership Priority', 'priority' => 'priority', 'rangeStart' => 201, 'rangeEnd' => 299, 'color' => 'red' ],
+                [ 'id' => 'medical', 'name' => 'Medical', 'priority' => 'regular', 'rangeStart' => 301, 'rangeEnd' => 399, 'color' => 'blue' ],
+                [ 'id' => 'membership-regular', 'name' => 'Membership Regular', 'priority' => 'regular', 'rangeStart' => 401, 'rangeEnd' => 499, 'color' => 'blue' ],
+                [ 'id' => 'corporate', 'name' => 'Corporate', 'priority' => 'regular', 'rangeStart' => 501, 'rangeEnd' => 599, 'color' => 'blue' ],
+                [ 'id' => 'corporate-priority', 'name' => 'Corporate Priority', 'priority' => 'priority', 'rangeStart' => 601, 'rangeEnd' => 699, 'color' => 'red' ],
+                [ 'id' => 'pension-regular', 'name' => 'Pension Care (RDF) Regular', 'priority' => 'regular', 'rangeStart' => 701, 'rangeEnd' => 799, 'color' => 'blue' ],
+                [ 'id' => 'pension-priority', 'name' => 'Pension Care (RDF) Priority', 'priority' => 'priority', 'rangeStart' => 801, 'rangeEnd' => 899, 'color' => 'red' ],
+                [ 'id' => 'ecenter-regular', 'name' => 'E-Center Regular', 'priority' => 'regular', 'rangeStart' => 901, 'rangeEnd' => 999, 'color' => 'blue' ],
+                [ 'id' => 'ecenter-priority', 'name' => 'E-Center Priority', 'priority' => 'priority', 'rangeStart' => 1001, 'rangeEnd' => 1099, 'color' => 'red' ],
+                [ 'id' => 'mysss', 'name' => 'My.SSS Appointment', 'priority' => 'regular', 'rangeStart' => 1101, 'rangeEnd' => 1199, 'color' => 'blue' ],
+                [ 'id' => 'welcome-back', 'name' => 'Welcome Back Ka-SSS', 'priority' => 'regular', 'rangeStart' => 1201, 'rangeEnd' => 1299, 'color' => 'blue' ],
+            ];
+            // reset removed to avoid hiding fallback defaults repeatedly
+            Cache::forget('categories:removed');
+        }
         return $base;
     }
 
@@ -97,34 +126,51 @@ class QueueController extends Controller
             $start = $c['rangeStart'] ?? 1;
             $end = $c['rangeEnd'] ?? PHP_INT_MAX;
 
-            // Find max number already used for this category using efficient query
-            $query = Ticket::when($branch, fn($q)=>$q->where('branch', $branch))
-                ->where(function($q) use ($id, $c) {
-                    $q->where('category_id', $id)
-                      ->orWhere(function($sub) use ($c, $id) {
-                          $sub->whereNull('category_id')->where('category', $c['name']);
-                      })
-                      ->orWhere(function($sub) use ($id) {
-                          $sub->whereNull('category_id')->where('category', $id);
-                      });
-                })
-                ->whereRaw("number REGEXP '^[0-9]+$'")
-                ->selectRaw('MAX(CAST(number AS UNSIGNED)) as max_num')
-                ->first();
+            // Detect sqlite driver (no REGEXP/UNSIGNED support)
+            $driver = strtolower((string) (config('database.default') ?? ''));
+            $isSqlite = strpos($driver, 'sqlite') !== false;
 
-            $max = $query ? $query->max_num : null;
-
-            if ($max === null) {
-                $next = $start;
+            if ($isSqlite) {
+                // SQLite path: pull candidate numbers and compute max in PHP
+                $rows = Ticket::when($branch, fn($q)=>$q->where('branch', $branch))
+                    ->where(function($q) use ($id, $c) {
+                        $q->where('category_id', $id)
+                          ->orWhere(function($sub) use ($c, $id) {
+                              $sub->whereNull('category_id')->where('category', $c['name']);
+                          })
+                          ->orWhere(function($sub) use ($id) {
+                              $sub->whereNull('category_id')->where('category', $id);
+                          });
+                    })
+                    ->orderBy('created_at', 'desc')
+                    ->pluck('number')
+                    ->all();
+                $numeric = [];
+                foreach ($rows as $n) {
+                    $s = preg_replace('/\D+/', '', (string) $n);
+                    if ($s !== '' && ctype_digit($s)) { $numeric[] = (int) $s; }
+                }
+                $max = empty($numeric) ? null : max($numeric);
             } else {
-                $next = $max + 1;
+                // MySQL/PostgreSQL path: use DB functions when available
+                $query = Ticket::when($branch, fn($q)=>$q->where('branch', $branch))
+                    ->where(function($q) use ($id, $c) {
+                        $q->where('category_id', $id)
+                          ->orWhere(function($sub) use ($c, $id) {
+                              $sub->whereNull('category_id')->where('category', $c['name']);
+                          })
+                          ->orWhere(function($sub) use ($id) {
+                              $sub->whereNull('category_id')->where('category', $id);
+                          });
+                    })
+                    ->whereRaw("number REGEXP '^[0-9]+$'")
+                    ->selectRaw('MAX(CAST(number AS UNSIGNED)) as max_num')
+                    ->first();
+                $max = $query ? $query->max_num : null;
             }
 
-            if ($next > $end) {
-                // wrap around to start of range
-                $next = $start;
-            }
-
+            $next = ($max === null) ? $start : ($max + 1);
+            if ($next > $end) { $next = $start; }
             $counters[$id] = $next;
         }
 
@@ -271,7 +317,7 @@ class QueueController extends Controller
         $BASE_START = 1301; // first block
         $STEP = 100;        // block step size
         $SPAN = 98;         // start + 98 => xx99
-        $extras = Session::get('extra_categories', []);
+        $extras = Cache::get('categories:extras', []);
         $maxIdx = -1;
         foreach ($extras as $e) {
             if (!empty($e['rangeStart']) && $e['rangeStart'] >= $BASE_START) {
@@ -293,13 +339,17 @@ class QueueController extends Controller
         ];
 
         $extras[] = $newCat;
-        Session::put('extra_categories', $extras);
+        Cache::put('categories:extras', $extras, now()->addDays(30));
 
-        return response()->json([
-            'ok' => true,
-            'category' => $newCat,
-            'categories' => self::categoriesList(),
-        ], 201);
+        return response()
+            ->json([
+                'ok' => true,
+                'category' => $newCat,
+                'categories' => self::categoriesList(),
+            ], 201)
+            ->header('Access-Control-Allow-Origin', '*')
+            ->header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+            ->header('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-TOKEN');
     }
 
     /**
@@ -313,30 +363,27 @@ class QueueController extends Controller
             return response()->json(['ok' => false, 'message' => 'Missing category id'], 422);
         }
 
-        // Prevent removal of built-in categories
-        $baseIds = ['acop', 'membership-priority', 'medical', 'membership-regular', 'corporate', 'corporate-priority', 'pension-regular', 'pension-priority', 'ecenter-regular', 'ecenter-priority', 'mysss', 'welcome-back'];
-        if (in_array($id, $baseIds)) {
-            return response()->json(['ok' => false, 'message' => 'Cannot remove built-in categories'], 422);
-        }
-
-        // Remove from extras if present
-        $extras = Session::get('extra_categories', []);
+        // Try to remove from extras; if not present, soft-remove built-ins via global removed list
+        $extras = Cache::get('categories:extras', []);
         $beforeCount = count($extras);
         $extras = array_values(array_filter($extras, function ($c) use ($id) { return ($c['id'] ?? '') !== $id; }));
         if (count($extras) !== $beforeCount) {
-            Session::put('extra_categories', $extras);
-        } else {
-            // Not in extras: mark as removed (blacklist)
-            $removed = Session::get('removed_categories', []);
-            if (!in_array($id, $removed)) {
-                $removed[] = $id;
-                Session::put('removed_categories', $removed);
-            }
+            Cache::put('categories:extras', $extras, now()->addDays(30));
+        }
+        // Mark id as removed globally so built-ins are filtered out in categoriesList
+        $removed = Cache::get('categories:removed', []);
+        if (!in_array($id, $removed)) {
+            $removed[] = $id;
+            Cache::put('categories:removed', $removed, now()->addDays(30));
         }
 
-        return response()->json([
-            'ok' => true,
-            'categories' => self::categoriesList(),
-        ]);
+        return response()
+            ->json([
+                'ok' => true,
+                'categories' => self::categoriesList(),
+            ])
+            ->header('Access-Control-Allow-Origin', '*')
+            ->header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+            ->header('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-TOKEN');
     }
 }

@@ -183,6 +183,35 @@
                 return categoryCounters[catId] ?? null;
             }
 
+            async function reloadCategoriesAndCounters() {
+                try {
+                    const res = await fetch('/categories/all', { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        CATEGORIES = data.categories || CATEGORIES;
+                        await populateCategorySelects();
+                    }
+                } catch (_) {}
+                try {
+                    const url = BRANCH ? `/categories/counters?branch=${encodeURIComponent(BRANCH)}` : '/categories/counters';
+                    const r2 = await fetch(url, { cache: 'no-store' });
+                    if (r2.ok) {
+                        const d2 = await r2.json();
+                        categoryCounters = d2.categoryCounters || categoryCounters;
+                        if (selectedPriority.value) {
+                            const next = getNextForCategory(selectedPriority.value);
+                            priorityNextNumber.classList.remove('hidden');
+                            priorityNextNumber.querySelector('p.text-red-600').textContent = next !== null ? next : '-';
+                        }
+                        if (selectedRegular.value) {
+                            const next = getNextForCategory(selectedRegular.value);
+                            regularNextNumber.classList.remove('hidden');
+                            regularNextNumber.querySelector('p.text-blue-600').textContent = next !== null ? next : '-';
+                        }
+                    }
+                } catch (_) {}
+            }
+
             selectedPriority.addEventListener('change', () => {
                 if (selectedPriority.value) {
                     priorityNextNumber.classList.remove('hidden');
@@ -309,19 +338,26 @@
             renderQueue();
 
             async function syncFromServer() {
-                try {
-                    const url = BRANCH ? `/api/tickets?branch=${encodeURIComponent(BRANCH)}` : '/api/tickets';
-                    const res = await fetch(url, { cache: 'no-store' });
-                    if (!res.ok) return;
-                    const data = await res.json();
-                    const incoming = data.tickets || [];
-                    const currentSig = JSON.stringify(tickets);
-                    const nextSig = JSON.stringify(incoming);
-                    tickets = incoming;
-                    if (currentSig !== nextSig) {
-                        renderQueue();
-                    }
-                } catch (e) {}
+                const urls = [
+                    BRANCH ? (`/api/tickets?branch=${encodeURIComponent(BRANCH)}`) : '/api/tickets',
+                    BRANCH ? (`http://127.0.0.1:8000/api/tickets?branch=${encodeURIComponent(BRANCH)}`) : 'http://127.0.0.1:8000/api/tickets',
+                    BRANCH ? (`http://localhost:8000/api/tickets?branch=${encodeURIComponent(BRANCH)}`) : 'http://localhost:8000/api/tickets',
+                ];
+                for (const url of urls) {
+                    try {
+                        const res = await fetch(url, { cache: 'no-store' });
+                        if (!res.ok) continue;
+                        const data = await res.json();
+                        const incoming = data.tickets || [];
+                        const currentSig = JSON.stringify(tickets);
+                        const nextSig = JSON.stringify(incoming);
+                        tickets = incoming;
+                        if (currentSig !== nextSig) {
+                            renderQueue();
+                        }
+                        break; // success
+                    } catch (e) { /* try next */ }
+                }
             }
             setInterval(syncFromServer, 2000);
 
@@ -338,6 +374,9 @@
             window.addEventListener('storage', (e) => {
                 if (e.key === lsKey('queue_ring') || e.key === lsKey('last_now_serving')) {
                     syncFromServer();
+                }
+                if (e.key === lsKey('queue_updated')) {
+                    reloadCategoriesAndCounters();
                 }
             });
         </script>

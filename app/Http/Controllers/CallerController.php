@@ -13,22 +13,14 @@ class CallerController extends Controller
         $branch = $request->route('branch') ?? $request->query('branch');
         $counters = ['Counter 1', 'Counter 2', 'Counter 3', 'Backroom', 'E-Center Regular', 'E-Center Priority', 'Priority', 'Medical']; // Medical is now always included
         $assigned = null;
-        // expire stale serving tickets on page load (DB)
+        // Expire stale serving tickets on page load (DB)
         if ($branch) {
             Ticket::where('branch', $branch)
                 ->where('status', 'serving')
                 ->where('called_at', '<', now()->subHour())
                 ->update(['status' => 'completed', 'completed_at' => now()]);
-                // Reset all tickets at/after 6pm (fallback in case scheduler hasn't run yet)
-                $now = now();
-                if ($now->hour >= 18) {
-                    // Mark all tickets as completed
-                    Ticket::where('branch', $branch)
-                        ->whereIn('status', ['waiting', 'serving'])
-                        ->update(['status' => 'completed', 'completed_at' => $now]);
-                    // Delete all tickets for this branch so new tickets start at initial range
-                    Ticket::where('branch', $branch)->delete();
-                }
+            // Note: Daily reset is handled by the scheduled command `queue:reset-system`.
+            // We intentionally do NOT reset/delete tickets here to avoid wiping the queue on refresh.
         }
         $tickets = Ticket::when($branch, fn($q)=>$q->where('branch', $branch))
             ->orderBy('created_at', 'asc')
@@ -161,4 +153,56 @@ class CallerController extends Controller
      * @return array
      */
     protected function expireServingTickets(array $tickets): array { return $tickets; }
+    
+    // Generate a new number for the selected category and serve it at the chosen counter
+    public function generateNowServing(Request $request)
+    {
+        $branch = $request->route('branch') ?? $request->query('branch');
+        $categoryId = (string) $request->input('category');
+        $counter = (string) $request->input('counter');
+        if ($categoryId === '' || $counter === '') {
+            return response()->json(['success' => false, 'message' => 'Missing category or counter'], 422);
+        }
+
+        // Complete any existing serving ticket at this counter
+        Ticket::when($branch, fn($q)=>$q->where('branch',$branch))
+            ->where('status','serving')
+            ->where('counter',$counter)
+            ->update(['status'=>'completed','completed_at'=>now()]);
+
+        // Resolve category details
+        $categories = \App\Http\Controllers\QueueController::categoriesList();
+        $cat = null; foreach ($categories as $c) { if (($c['id'] ?? '') === $categoryId) { $cat = $c; break; } }
+        if (!$cat) { return response()->json(['success'=>false,'message'=>'Invalid category'], 422); }
+
+        // Compute next number for the category (branch-aware)
+        $qc = app(\App\Http\Controllers\QueueController::class);
+        $counters = $qc->categoryCounters($branch);
+        $nextNumber = (string) ($counters[$categoryId] ?? ($cat['rangeStart'] ?? '1'));
+
+        // Create ticket directly as serving
+        $t = new Ticket();
+        $t->id = uniqid('t');
+        $t->number = $nextNumber;
+        $t->priority = $cat['priority'] ?? 'regular';
+        $t->category = $cat['name'] ?? $categoryId;
+        $t->category_id = $categoryId;
+        $t->mode = 'screen';
+        $t->status = 'serving';
+        $t->branch = $branch;
+        $t->counter = $counter;
+        $t->called_at = now();
+        $t->save();
+
+        $tickets = Ticket::when($branch, fn($q)=>$q->where('branch',$branch))->orderBy('created_at','asc')->get();
+        return response()->json([
+            'success' => true,
+            'ticket' => $t,
+            'tickets' => $tickets,
+            'serving_number' => $t->number,
+            'serving_category' => $t->category,
+            'serving_counter' => $counter,
+        ], 201);
+    }
+
 }
