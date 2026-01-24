@@ -227,14 +227,53 @@
         const el = document.getElementById('displayAllCounters');
         if (!el) return;
         const COUNTERS = ['Counter 1','Counter 2','Counter 3','Counter 4','Priority','E-Center Priority','Backroom','Medical','E-Center'];
-        el.innerHTML = COUNTERS.map((name) => `
+        el.innerHTML = COUNTERS.map((name) => {
+          const label = (String(name).toLowerCase() === 'e-center') ? 'E-Center Regular' : name;
+          return `
           <div class="relative bg-[var(--tile)] rounded-xl p-4 text-center shadow-sm" data-name="${name.toLowerCase()}">
-            <div class="text-xl font-semibold uppercase">${name}</div>
+            <div class="qdb-label text-xl font-semibold uppercase">${label}</div>
             <div class="qdb-num text-5xl font-bold mt-2">---</div>
             <div class="qdb-cat text-2xl text-[var(--muted)] mt-1"></div>
           </div>
-        `).join('');
+          `;
+        }).join('');
       })();
+
+      // Ensure a tile exists for a given counter name. If none matches,
+      // repurpose an unused tile by changing its label and data-name.
+      function ensureTileFor(name, presentKeys){
+        const wrap = document.getElementById('displayAllCounters'); if (!wrap) return null;
+        const norm = s => String(s||'').trim().toLowerCase();
+        const rawKey = norm(name);
+        // Special-case mapping: keep E-Center tile for E-Center Regular variants
+        const mappedKey = (rawKey === 'e-center regular' || rawKey === 'e center regular' || rawKey === 'ecenter regular' || rawKey === 'e-center reg') ? 'e-center' : rawKey;
+        let tile = wrap.querySelector(`[data-name="${mappedKey}"]`);
+        if (tile){
+          // Update visible label if server name differs
+          const labelEl = tile.querySelector('.qdb-label'); if (labelEl) labelEl.textContent = name;
+          return tile;
+        }
+        // Find a candidate tile not currently updated by server
+        const children = Array.from(wrap.children);
+        const now = Date.now();
+        const candidates = children.filter(ch => {
+          const key = String(ch.getAttribute('data-name')||'').toLowerCase();
+          const numEl = ch.querySelector('.qdb-num'); const catEl = ch.querySelector('.qdb-cat');
+          const isUnused = (numEl && (numEl.textContent||'').trim() === '---') && (catEl && !(catEl.textContent||'').trim());
+          const notInServer = !presentKeys || !presentKeys.has(key);
+          const lockUntil = parseInt(ch.getAttribute('data-lock-until')||'0',10);
+          const lockKey = String(ch.getAttribute('data-lock-key')||'');
+          const isLockedForOther = lockUntil>now && norm(lockKey)!==mappedKey;
+          return (isUnused || notInServer) && !isLockedForOther;
+        });
+        if (candidates.length){
+          tile = candidates[0];
+          tile.setAttribute('data-name', mappedKey);
+          const labelEl = tile.querySelector('.qdb-label'); if (labelEl) labelEl.textContent = name;
+          return tile;
+        }
+        return null;
+      }
 
       // Time + Date
       function updateTime(){
@@ -332,8 +371,17 @@
               const res = await fetch(url, { cache:'no-store' }); if (!res.ok) continue;
               const data = await res.json(); const statuses = data.counters || {}; const norm = s => String(s||'').trim().toLowerCase();
               const wrap = document.getElementById('displayAllCounters'); if (!wrap) return;
+              // Clear expired locks so tiles can be reassigned
+              try {
+                const now = Date.now();
+                Array.from(wrap.children).forEach(ch=>{
+                  const until = parseInt(ch.getAttribute('data-lock-until')||'0',10);
+                  if (until && until<=now){ ch.removeAttribute('data-lock-until'); ch.removeAttribute('data-lock-key'); }
+                });
+              } catch {}
+              const presentKeys = new Set(Object.keys(statuses).map(n => norm(n)));
               Object.keys(statuses).forEach(name => {
-                const tile = wrap.querySelector(`[data-name="${norm(name)}"]`);
+                const tile = ensureTileFor(name, presentKeys);
                 if (!tile) return; const numEl = tile.querySelector('.qdb-num'); const catEl = tile.querySelector('.qdb-cat');
                 const st = statuses[name]; if (numEl) numEl.textContent = (st && st.number) ? st.number : '---'; if (catEl) catEl.textContent = (st && st.category) ? st.category : '';
               });
@@ -434,13 +482,23 @@
         const catWrap = document.getElementById('displayNowCategoryWrap'); const catEl = document.getElementById('displayNowCategory');
         if (category){ catEl.textContent = category; catWrap.classList.remove('hidden'); } else { catWrap.classList.add('hidden'); }
 
-        // Update matching tile immediately
+        // Update matching tile immediately, creating/repurposing one if needed
         const wrap = document.getElementById('displayAllCounters');
         if (wrap && counter){
-          const tile = wrap.querySelector(`[data-name="${norm(counter)}"]`);
+          const tile = ensureTileFor(counter);
           if (tile){
+            const labelEl = tile.querySelector('.qdb-label'); if (labelEl) labelEl.textContent = counter;
             const numEl = tile.querySelector('.qdb-num'); const catEl = tile.querySelector('.qdb-cat');
             if (numEl) numEl.textContent = number; if (catEl) catEl.textContent = category;
+            // Temporarily lock this tile to the current counter name so periodic
+            // refresh won't immediately reassign it. Lock duration is configurable.
+            try {
+              const ttlRaw = localStorage.getItem(lsKey('tile_lock_ms')) || '';
+              const ttl = parseInt(ttlRaw,10) || 15000; // default 15s
+              const now = Date.now();
+              tile.setAttribute('data-lock-key', String(counter));
+              tile.setAttribute('data-lock-until', String(now+ttl));
+            } catch {}
             if (isNew){
               tile.classList.add('ring-highlight');
               setTimeout(()=> tile.classList.remove('ring-highlight'), 3000);
